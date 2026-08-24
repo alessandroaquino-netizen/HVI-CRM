@@ -13,6 +13,36 @@ export function openModal(html) {
   overlay().classList.remove('hidden');
 }
 
+// ---------- generic drilldown list ----------
+// rows: [{ id, type: 'lead'|'project', primary, secondary, value }]
+// Reuses the delegated data-open-lead / data-open-project click handler in main.js —
+// clicking a row just opens the real record, no extra wiring needed here.
+
+export function renderListDetail(title, subtitle, rows) {
+  const rowHtml = r => `
+    <div class="drilldown-row" ${r.type === 'project' ? `data-open-project="${r.id}"` : `data-open-lead="${r.id}"`}>
+      <div>
+        <div class="drilldown-primary">${r.primary || '—'}</div>
+        ${r.secondary ? `<div class="drilldown-secondary">${r.secondary}</div>` : ''}
+      </div>
+      ${r.value ? `<div class="drilldown-value">${r.value}</div>` : ''}
+    </div>`;
+
+  openModal(`
+    <div class="modal-header">
+      <h3>${title}</h3>
+      <button class="btn btn-sm btn-ghost" id="ldCloseBtn">✕</button>
+    </div>
+    <div class="modal-body">
+      ${subtitle ? `<div style="font-size:12px;color:var(--text3);margin-bottom:12px">${subtitle}</div>` : ''}
+      ${rows.length
+        ? `<div class="drilldown-list">${rows.map(rowHtml).join('')}</div>`
+        : '<div style="color:var(--text3);font-size:13px;padding:1rem 0">No records for this selection.</div>'}
+    </div>`);
+
+  document.getElementById('ldCloseBtn').addEventListener('click', closeModal);
+}
+
 // ---------- detail ----------
 
 export function renderDetail(lead, { onEdit, onDelete, onStageChange }) {

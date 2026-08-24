@@ -2,6 +2,10 @@ import { supabase } from './supabase.js';
 import { signInWithGoogle, signOut, isAllowedUser, onAuthChange } from './auth.js';
 import { fetchLeads, saveLead, updateStage, deleteLead, subscribeToLeads } from './controllers/leads.js';
 import { fetchProjects, saveProject, updateProjectStage, deleteProject, subscribeToProjects } from './controllers/projects.js';
+import {
+  fetchStageDates, saveStageDates, stageDatesForProject, subscribeToStageDates,
+  fetchActivity, addActivity, logStageChange, activityForProject, subscribeToActivity,
+} from './controllers/projectTracking.js';
 import { renderKPIs } from './views/kpi.js';
 import { renderPipeline } from './views/pipeline.js';
 import { renderList } from './views/list.js';
@@ -10,15 +14,20 @@ import { renderDisc } from './views/disc.js';
 import { renderDetail, renderForm, closeModal } from './views/modal.js';
 import { renderProjects, renderProjectDetail, renderProjectForm } from './views/projects.js';
 import { renderDashboard } from './views/dashboard.js';
+import { renderProjectsDashboard } from './views/projectsDashboard.js';
 
 // ---------- state ----------
-let leads       = [];
-let projects    = [];
+let leads             = [];
+let projects          = [];
+let projectStageDates = [];
+let projectActivity   = [];
 let currentView = 'pipeline';
 let editingId   = null;
 let editingProjectId = null;
-let realtimeLeads    = null;
-let realtimeProjects = null;
+let realtimeLeads         = null;
+let realtimeProjects      = null;
+let realtimeStageDates    = null;
+let realtimeActivity      = null;
 
 // ---------- helpers ----------
 function getFiltered() {
@@ -31,22 +40,31 @@ function getFiltered() {
   );
 }
 
-const ALL_VIEWS = ['pipeline', 'list', 'disc', 'followups', 'projects', 'dashboard'];
+const ALL_VIEWS = ['pipeline', 'list', 'disc', 'followups', 'projects', 'leadDashboard', 'projectsDashboard'];
 
 // ---------- render ----------
 function render() {
   renderKPIs(leads);
   updateFollowupBadge(leads);
-  if (currentView === 'pipeline')  renderPipeline(leads, getFiltered());
-  if (currentView === 'list')      renderList(getFiltered());
-  if (currentView === 'disc')      renderDisc();
-  if (currentView === 'followups') renderFollowups(leads);
-  if (currentView === 'projects')  renderProjects(projects);
-  if (currentView === 'dashboard') renderDashboard(leads, projects);
+  if (currentView === 'pipeline')          renderPipeline(leads, getFiltered());
+  if (currentView === 'list')              renderList(getFiltered());
+  if (currentView === 'disc')              renderDisc();
+  if (currentView === 'followups')         renderFollowups(leads);
+  if (currentView === 'projects')          renderProjects(projects);
+  if (currentView === 'leadDashboard')     renderDashboard(leads, projects);
+  if (currentView === 'projectsDashboard') renderProjectsDashboard(projects, projectActivity);
 }
 
 async function refresh() {
-  [leads, projects] = await Promise.all([fetchLeads(), fetchProjects()]);
+  // Stage-tracking tables are a newer, optional migration — don't let a not-yet-migrated
+  // Supabase project take down leads/projects loading if they're missing.
+  const [leadsRes, projectsRes, stageDatesRes, activityRes] = await Promise.all([
+    fetchLeads(), fetchProjects(),
+    fetchStageDates().catch(() => []),
+    fetchActivity().catch(() => []),
+  ]);
+  leads = leadsRes; projects = projectsRes;
+  projectStageDates = stageDatesRes; projectActivity = activityRes;
   render();
 }
 
@@ -54,8 +72,9 @@ async function refresh() {
 function setView(view) {
   currentView = view;
   const titles = {
-    pipeline: 'Pipeline', list: 'All Leads', disc: 'DISC Guide',
-    followups: 'Follow-ups', projects: 'B2B Projects', dashboard: 'Executive Dashboard',
+    pipeline: 'Pipeline', list: 'All Leads', disc: 'DISC Guide', followups: 'Follow-ups',
+    projects: 'B2B Projects', leadDashboard: 'Dashboard Lead Management',
+    projectsDashboard: 'Dashboard B2B Projects',
   };
   document.getElementById('viewTitle').textContent = titles[view] || view;
   ALL_VIEWS.forEach(v => {
@@ -64,9 +83,9 @@ function setView(view) {
   document.querySelectorAll('#sidebarNav .nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
   });
-  // Show/hide Add Lead button — not relevant on projects or dashboard
+  // Show/hide Add Lead button — not relevant on projects or either dashboard
   const addBtn = document.getElementById('addLeadBtn');
-  if (addBtn) addBtn.style.display = ['projects', 'dashboard'].includes(view) ? 'none' : '';
+  if (addBtn) addBtn.style.display = ['projects', 'leadDashboard', 'projectsDashboard'].includes(view) ? 'none' : '';
   // Show Add Project button only on projects view
   const addProjBtn = document.getElementById('addProjectBtn');
   if (addProjBtn) addProjBtn.style.display = view === 'projects' ? '' : 'none';
@@ -111,11 +130,18 @@ async function handleStageChange(id, stage) {
 function openProjectDetail(id) {
   const project = projects.find(p => p.id === id);
   if (!project) return;
-  renderProjectDetail(project, leads, {
-    onEdit:        openProjectEdit,
-    onDelete:      handleProjectDelete,
-    onStageChange: handleProjectStageChange,
-  });
+  renderProjectDetail(
+    project, leads,
+    stageDatesForProject(projectStageDates, id),
+    activityForProject(projectActivity, id),
+    {
+      onEdit:         openProjectEdit,
+      onDelete:       handleProjectDelete,
+      onStageChange:  handleProjectStageChange,
+      onSaveTimeline: handleSaveTimeline,
+      onAddComment:   handleAddComment,
+    },
+  );
 }
 
 function openProjectAdd() {
@@ -141,19 +167,38 @@ async function handleProjectDelete(id) {
 }
 
 async function handleProjectStageChange(id, stage) {
-  try { await updateProjectStage(id, stage); await refresh(); openProjectDetail(id); }
+  try {
+    await updateProjectStage(id, stage);
+    await logStageChange(id, stage);
+    await refresh();
+    openProjectDetail(id);
+  }
   catch (err) { alert('Could not update project stage: ' + err.message); }
+}
+
+async function handleSaveTimeline(id, rows) {
+  try { await saveStageDates(id, rows); await refresh(); openProjectDetail(id); }
+  catch (err) { alert('Could not save stage timeline: ' + err.message); }
+}
+
+async function handleAddComment(id, { stage, comment }) {
+  try { await addActivity(id, { stage, comment }); await refresh(); openProjectDetail(id); }
+  catch (err) { alert('Could not add comment: ' + err.message); }
 }
 
 // ---------- realtime ----------
 function subscribeRealtime() {
-  if (!realtimeLeads)    realtimeLeads    = subscribeToLeads(supabase, refresh);
-  if (!realtimeProjects) realtimeProjects = subscribeToProjects(refresh);
+  if (!realtimeLeads)      realtimeLeads      = subscribeToLeads(supabase, refresh);
+  if (!realtimeProjects)   realtimeProjects   = subscribeToProjects(refresh);
+  if (!realtimeStageDates) realtimeStageDates = subscribeToStageDates(refresh);
+  if (!realtimeActivity)   realtimeActivity   = subscribeToActivity(refresh);
 }
 
 function unsubscribeRealtime() {
-  if (realtimeLeads)    { supabase.removeChannel(realtimeLeads);    realtimeLeads    = null; }
-  if (realtimeProjects) { supabase.removeChannel(realtimeProjects); realtimeProjects = null; }
+  if (realtimeLeads)      { supabase.removeChannel(realtimeLeads);      realtimeLeads      = null; }
+  if (realtimeProjects)   { supabase.removeChannel(realtimeProjects);   realtimeProjects   = null; }
+  if (realtimeStageDates) { supabase.removeChannel(realtimeStageDates); realtimeStageDates = null; }
+  if (realtimeActivity)   { supabase.removeChannel(realtimeActivity);   realtimeActivity   = null; }
 }
 
 // ---------- auth ----------

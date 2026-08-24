@@ -3,9 +3,14 @@ import { PROJECT_STAGES, PHASES, daysAtStage, stageStatus } from '../controllers
 // ─── helpers ──────────────────────────────────────────────────────────────
 
 function typeIcon(type) {
-  if (type === 'milestone') return '<span title="Milestone" style="color:var(--yellow)">🏆</span>';
-  if (type === 'payment')   return '<span title="Payment" style="color:var(--green)">💰</span>';
+  if (type === 'milestone') return '<span class="tag-milestone">MILESTONE</span>';
+  if (type === 'payment')   return '<span class="tag-payment">PAYMENT</span>';
   return '';
+}
+
+function daysAgo(dateStr) {
+  if (!dateStr) return null;
+  return Math.floor((new Date() - new Date(dateStr)) / 86400000);
 }
 
 function statusBorder(status) {
@@ -34,7 +39,7 @@ function projectCard(project) {
   const stage   = PROJECT_STAGES.find(s => s.n === project.stage);
   const status  = stageStatus(project);
   const val     = project.est_value ? `$${Number(project.est_value).toLocaleString()}` : '';
-  const coll    = project.collected ? `$${Number(project.collected).toLocaleString()} collected` : '';
+  const updated = daysAgo(project.last_activity);
 
   return `<div class="proj-card" data-open-project="${project.id}" style="${statusBorder(status)}">
     <div class="proj-card-company">${project.company}</div>
@@ -45,6 +50,7 @@ function projectCard(project) {
       ${daysBadge(project, stage || {})}
     </div>
     ${paymentBadges(project) ? `<div class="proj-card-payments" style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">${paymentBadges(project)}</div>` : ''}
+    ${updated != null ? `<div class="proj-card-updated">updated ${updated === 0 ? 'today' : updated + 'd ago'}</div>` : ''}
   </div>`;
 }
 
@@ -85,33 +91,23 @@ export function renderProjects(projects) {
       </div>
     </div>`;
 
-  // Kanban grouped by phase
-  html += '<div class="proj-board">';
-  PHASES.forEach(phase => {
-    const phaseStages = PROJECT_STAGES.filter(s => s.phase === phase.n);
+  // Kanban — all 14 stages side by side, same lateral-progress pattern as the Leads Pipeline
+  html += '<div class="proj-kanban">';
+  PROJECT_STAGES.forEach(stage => {
+    const phase = PHASES.find(p => p.n === stage.phase);
+    const stageProjects = projects.filter(p => p.stage === stage.n);
     html += `
-      <div class="proj-phase">
-        <div class="proj-phase-header" style="border-color:#${phase.color};color:#${phase.color}">
-          ${phase.label}
+      <div class="proj-stage-col">
+        <div class="proj-stage-header" style="color:#${phase.color}">
+          ${typeIcon(stage.type)}
+          <span style="color:var(--text3)">${stage.n}. ${stage.label}</span>
+          <span class="stage-count">${stageProjects.length || ''}</span>
+          ${stage.sla ? `<span style="font-size:9px;color:var(--text3);font-family:var(--mono);margin-left:auto">SLA ${stage.sla}d</span>` : ''}
         </div>
-        <div class="proj-phase-cols">
-          ${phaseStages.map(stage => {
-            const stageProjects = projects.filter(p => p.stage === stage.n);
-            return `
-              <div class="proj-stage-col">
-                <div class="proj-stage-header">
-                  ${typeIcon(stage.type)}
-                  <span>${stage.n}. ${stage.label}</span>
-                  <span class="stage-count">${stageProjects.length || ''}</span>
-                  ${stage.sla ? `<span style="font-size:9px;color:var(--text3);font-family:var(--mono);margin-left:auto">SLA ${stage.sla}d</span>` : ''}
-                </div>
-                <div class="proj-cards">
-                  ${stageProjects.length
-                    ? stageProjects.map(projectCard).join('')
-                    : '<div class="empty-col">—</div>'}
-                </div>
-              </div>`;
-          }).join('')}
+        <div class="proj-cards">
+          ${stageProjects.length
+            ? stageProjects.map(projectCard).join('')
+            : '<div class="empty-col">—</div>'}
         </div>
       </div>`;
   });
@@ -122,7 +118,7 @@ export function renderProjects(projects) {
 
 // ─── Project detail modal ─────────────────────────────────────────────────
 
-export function renderProjectDetail(project, leads, { onEdit, onDelete, onStageChange }) {
+export function renderProjectDetail(project, leads, stageDates, activity, { onEdit, onDelete, onStageChange, onSaveTimeline, onAddComment }) {
   const stage = PROJECT_STAGES.find(s => s.n === project.stage);
   const status = stageStatus(project);
   const days = daysAtStage(project);
@@ -171,6 +167,40 @@ export function renderProjectDetail(project, leads, { onEdit, onDelete, onStageC
         <div class="detail-field"><div class="lbl">Last activity</div><div class="val">${project.last_activity || '—'}</div></div>
       </div>
       ${project.notes ? `<div style="margin-top:1rem"><div class="section-divider">Notes</div><div class="notes-display" style="margin-top:8px">${project.notes}</div></div>` : ''}
+
+      <div class="section-divider" style="margin-top:1.5rem">Stage timeline</div>
+      <div class="timeline-list" style="margin-top:8px">
+        ${PROJECT_STAGES.map(s => {
+          const d = stageDates.find(sd => sd.stage === s.n) || {};
+          return `
+            <div class="timeline-row" data-timeline-stage="${s.n}">
+              <span class="timeline-stage-label">${s.n}. ${s.label}</span>
+              <input type="date" class="timeline-date" value="${d.target_date || ''}">
+              <label class="timeline-actual"><input type="checkbox" class="timeline-is-actual" ${d.is_actual ? 'checked' : ''}> Actual</label>
+              <input type="text" class="timeline-note" placeholder="note" value="${d.note || ''}">
+            </div>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:10px">
+        <button class="btn btn-sm btn-accent" id="pdSaveTimelineBtn">Save stage timeline</button>
+      </div>
+
+      <div class="section-divider" style="margin-top:1.5rem">Activity</div>
+      <div class="activity-list" style="margin-top:8px">
+        ${activity.length ? activity.map(a => `
+          <div class="activity-row">
+            <div class="activity-meta">
+              <span>${new Date(a.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+              ${a.created_by ? `<span>· ${a.created_by}</span>` : ''}
+              ${a.stage ? `<span>· Stage ${a.stage}</span>` : ''}
+            </div>
+            <div class="activity-comment">${a.event_type === 'stage_change' ? `<em>${a.comment}</em>` : a.comment}</div>
+          </div>`).join('') : '<div style="color:var(--text3);font-size:12px;padding:.5rem 0">No activity yet.</div>'}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <input type="text" id="pdCommentInput" placeholder="Add a comment...">
+        <button class="btn btn-sm btn-accent" id="pdAddCommentBtn">Add</button>
+      </div>
     </div>`;
 
   overlay.classList.remove('hidden');
@@ -180,6 +210,21 @@ export function renderProjectDetail(project, leads, { onEdit, onDelete, onStageC
   document.getElementById('pdDeleteBtn').addEventListener('click', () => onDelete(project.id));
   document.querySelectorAll('[data-proj-stage]').forEach(btn => {
     btn.addEventListener('click', () => onStageChange(project.id, parseInt(btn.dataset.projStage)));
+  });
+  document.getElementById('pdSaveTimelineBtn').addEventListener('click', () => {
+    const rows = Array.from(document.querySelectorAll('[data-timeline-stage]')).map(row => ({
+      stage:       parseInt(row.dataset.timelineStage, 10),
+      target_date: row.querySelector('.timeline-date').value || null,
+      is_actual:   row.querySelector('.timeline-is-actual').checked,
+      note:        row.querySelector('.timeline-note').value.trim(),
+    }));
+    onSaveTimeline(project.id, rows);
+  });
+  document.getElementById('pdAddCommentBtn').addEventListener('click', () => {
+    const input = document.getElementById('pdCommentInput');
+    const comment = input.value.trim();
+    if (!comment) return;
+    onAddComment(project.id, { stage: project.stage, comment });
   });
 }
 

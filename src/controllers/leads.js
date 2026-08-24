@@ -22,6 +22,7 @@ export function rowToLead(r) {
     notes:        r.notes          || '',
     collected:    r.collected != null ? String(r.collected) : '',
     stage_changed_at: r.stage_changed_at || '',
+    created_at:   r.created_at ? r.created_at.slice(0, 10) : '',
   };
 }
 

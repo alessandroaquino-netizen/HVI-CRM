@@ -192,22 +192,62 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); font
 /* Nav section labels */
 .nav-section-label { font-size: 9px; font-family: var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--text3); padding: 4px 1.25rem 2px; }
 
-/* Project board */
+/* Dashboard period controls */
+.period-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.period-nav { display: flex; align-items: center; gap: 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 3px 4px; }
+.period-nav .btn { padding: 4px 8px; }
+.period-label { font-size: 12px; font-family: var(--mono); color: var(--text); padding: 0 6px; white-space: nowrap; }
+.period-custom-inputs { display: flex; align-items: center; gap: 6px; }
+.period-custom-inputs input[type="date"] { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-family: var(--font); font-size: 12px; padding: 5px 8px; }
+
+/* KPI drilldown affordance */
+.kpi-card[data-kpi] { cursor: pointer; transition: border-color .15s, background .15s; }
+.kpi-card[data-kpi]:hover { border-color: var(--border2); background: var(--bg3); }
+.kpi-scroll-list { max-height: 150px; overflow-y: auto; margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+.kpi-scroll-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 6px; border-radius: var(--radius); font-size: 11px; color: var(--text2); cursor: pointer; }
+.kpi-scroll-row:hover { background: var(--bg4); color: var(--text); }
+
+/* Generic drilldown modal list */
+.drilldown-list { max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.drilldown-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 10px; border-radius: var(--radius); cursor: pointer; border-bottom: 1px solid var(--border); }
+.drilldown-row:last-child { border-bottom: none; }
+.drilldown-row:hover { background: var(--bg3); }
+.drilldown-primary { font-size: 13px; font-weight: 500; color: var(--text); }
+.drilldown-secondary { font-size: 11px; color: var(--text3); margin-top: 1px; }
+.drilldown-value { font-size: 12px; font-family: var(--mono); color: var(--text2); white-space: nowrap; }
+
+/* Project board — one row of all 14 stages, same interaction language as .pipeline-grid
+   but flex + horizontal scroll since 14 even grid columns wouldn't stay readable */
 .proj-summary { display: grid; grid-template-columns: repeat(5,1fr); gap: 10px; margin-bottom: 1.5rem; }
-.proj-board { display: flex; flex-direction: column; gap: 1.5rem; }
-.proj-phase { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
-.proj-phase-header { font-size: 10px; font-family: var(--mono); font-weight: 600; text-transform: uppercase; letter-spacing: .1em; padding: 10px 14px; border-bottom: 1px solid var(--border); border-left: 3px solid currentColor; }
-.proj-phase-cols { display: grid; gap: 0; overflow-x: auto; }
-.proj-phase:nth-child(1) .proj-phase-cols { grid-template-columns: repeat(2,1fr); }
-.proj-phase:nth-child(2) .proj-phase-cols { grid-template-columns: repeat(4,1fr); }
-.proj-phase:nth-child(3) .proj-phase-cols { grid-template-columns: repeat(5,1fr); }
-.proj-phase:nth-child(4) .proj-phase-cols { grid-template-columns: repeat(3,1fr); }
-.proj-stage-col { border-right: 1px solid var(--border); padding: 10px; min-width: 160px; }
-.proj-stage-col:last-child { border-right: none; }
-.proj-stage-header { font-size: 9px; font-family: var(--mono); color: var(--text3); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.proj-kanban { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; align-items: flex-start; }
+.proj-stage-col { flex: 0 0 190px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px; }
+.proj-stage-header { font-size: 10px; font-family: var(--mono); color: var(--text3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px; padding: 0 0 8px 8px; border-bottom: 1px solid var(--border); border-left: 3px solid currentColor; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .proj-cards { display: flex; flex-direction: column; gap: 6px; }
 .proj-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; cursor: pointer; transition: border-color .15s, background .15s; }
 .proj-card:hover { background: var(--bg4); border-color: var(--border2); }
 .proj-card-company { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .proj-card-contact { font-size: 10px; color: var(--text3); margin-top: 1px; }
 .proj-card-meta { display: flex; align-items: center; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
+.proj-card-updated { font-size: 9px; color: var(--text3); margin-top: 5px; font-family: var(--mono); }
+.tag-milestone { font-size: 9px; font-family: var(--mono); font-weight: 500; padding: 1px 5px; border-radius: 3px; background: rgba(240,192,64,.15); color: var(--accent); }
+.tag-payment { font-size: 9px; font-family: var(--mono); font-weight: 500; padding: 1px 5px; border-radius: 3px; background: rgba(76,175,125,.15); color: var(--green); }
+
+/* Project stage timeline */
+.timeline-list { max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 8px; }
+.timeline-row { display: grid; grid-template-columns: 1fr 122px 62px 1fr; gap: 6px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.timeline-row:last-child { border-bottom: none; }
+.timeline-stage-label { font-size: 11px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timeline-date, .timeline-note { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: var(--font); font-size: 11px; padding: 4px 6px; width: 100%; outline: none; }
+.timeline-date:focus, .timeline-note:focus { border-color: var(--accent); }
+.timeline-actual { display: flex; align-items: center; gap: 3px; color: var(--text3); font-size: 10px; white-space: nowrap; cursor: pointer; }
+
+/* Project activity feed */
+.activity-list { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.activity-row { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.activity-row:last-child { border-bottom: none; }
+.activity-meta { font-size: 10px; font-family: var(--mono); color: var(--text3); margin-bottom: 3px; }
+.activity-meta span + span { margin-left: 4px; }
+.activity-comment { font-size: 12px; color: var(--text2); line-height: 1.5; }
+.activity-comment em { color: var(--text3); font-style: normal; }
+#pdCommentInput { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-family: var(--font); font-size: 12px; padding: 7px 10px; outline: none; }
+#pdCommentInput:focus { border-color: var(--accent); }

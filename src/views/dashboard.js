@@ -1,21 +1,51 @@
-import { stageStatus, daysAtStage, PROJECT_STAGES } from '../controllers/projects.js';
+import { renderListDetail } from './modal.js';
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
+function iso(d) { return d.toISOString().slice(0, 10); }
+function money(n) { return '$' + Math.round(n || 0).toLocaleString(); }
 
-function weekRange() {
+// ---------- period state (persists across re-renders, resets on page reload) ----------
+
+let quarterOffset  = 0;     // 0 = current quarter
+let weekOffset     = 0;     // 0 = current week
+let customQuarter  = null;  // { start, end } | null — overrides quarterOffset when set
+let customWeek     = null;  // { start, end } | null — overrides weekOffset when set
+let quarterCustomOpen = false;
+let weekCustomOpen    = false;
+
+// ---------- period math ----------
+
+function quarterBounds(offset) {
   const now = new Date();
-  const day = now.getDay(); // 0=Sun
-  const mon = new Date(now); mon.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-  const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-  return [mon.toISOString().slice(0,10), sun.toISOString().slice(0,10)];
+  const totalQ = now.getFullYear() * 4 + Math.floor(now.getMonth() / 3) + offset;
+  const year = Math.floor(totalQ / 4);
+  const q = totalQ - year * 4;
+  const start = new Date(year, q * 3, 1);
+  const end   = new Date(year, q * 3 + 3, 0);
+  return { start: iso(start), end: iso(end), label: `Q${q + 1} ${year}` };
 }
 
-function quarterRange() {
+function weekBounds(offset) {
   const now = new Date();
-  const q = Math.floor(now.getMonth() / 3);
-  const start = new Date(now.getFullYear(), q * 3, 1).toISOString().slice(0,10);
-  const end   = new Date(now.getFullYear(), q * 3 + 3, 0).toISOString().slice(0,10);
-  return [start, end];
+  const day = now.getDay();
+  const mon = new Date(now);
+  mon.setDate(now.getDate() - (day === 0 ? 6 : day - 1) + offset * 7);
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
+  const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return { start: iso(mon), end: iso(sun), label: `${fmt(mon)} – ${fmt(sun)}` };
+}
+
+function getQuarterPeriod() {
+  if (customQuarter) return { ...customQuarter, label: `${customQuarter.start} – ${customQuarter.end}`, isCurrent: false };
+  const b = quarterBounds(quarterOffset);
+  return { ...b, isCurrent: quarterOffset === 0 };
+}
+
+function getWeekPeriod() {
+  if (customWeek) return { ...customWeek, label: `${customWeek.start} – ${customWeek.end}`, isCurrent: false };
+  const b = weekBounds(weekOffset);
+  return { ...b, isCurrent: weekOffset === 0 };
 }
 
 function inRange(dateStr, start, end) {
@@ -23,239 +53,254 @@ function inRange(dateStr, start, end) {
   return dateStr >= start && dateStr <= end;
 }
 
-function progressBar(value, target, color) {
-  const pct = Math.min(100, Math.round((value / target) * 100));
-  const barColor = pct >= 100 ? 'var(--green)' : pct >= 60 ? 'var(--accent)' : 'var(--red)';
+// ---------- UI: period control bar ----------
+
+function periodControlHtml(key, period, customOpen) {
   return `
-    <div style="margin-top:10px">
-      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-        <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${pct}% of target</span>
-        <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">$${Number(target).toLocaleString()}</span>
+    <div class="period-bar">
+      <div class="period-nav">
+        <button class="btn btn-sm btn-ghost" data-period-action="prev" data-period-key="${key}">‹</button>
+        <span class="period-label">${period.label}</span>
+        <button class="btn btn-sm btn-ghost" data-period-action="next" data-period-key="${key}">›</button>
       </div>
-      <div style="height:3px;background:var(--bg4);border-radius:3px">
-        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px;transition:width .4s"></div>
-      </div>
+      ${!period.isCurrent ? `<button class="btn btn-sm btn-accent" data-period-action="today" data-period-key="${key}">Today</button>` : ''}
+      <button class="btn btn-sm btn-ghost" data-period-action="toggle-custom" data-period-key="${key}">Custom range</button>
+      ${customOpen ? `
+        <span class="period-custom-inputs">
+          <input type="date" class="period-custom-start" data-period-key="${key}">
+          <span style="color:var(--text3);font-size:12px">to</span>
+          <input type="date" class="period-custom-end" data-period-key="${key}">
+          <button class="btn btn-sm btn-accent" data-period-action="apply-custom" data-period-key="${key}">Apply</button>
+          <button class="btn btn-sm btn-ghost" data-period-action="clear-custom" data-period-key="${key}">Clear</button>
+        </span>` : ''}
     </div>`;
 }
 
-function scorecardCard(label, value, target, format, subtitle) {
-  const num = typeof value === 'number' ? value : 0;
-  const tgt = typeof target === 'number' ? target : 0;
-  const ok = num >= tgt;
-  const displayVal = format === 'currency' ? '$' + Number(num).toLocaleString()
-    : format === 'count' ? num
-    : num;
+function wireperiodControls(el, onChange) {
+  el.querySelectorAll('[data-period-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key    = btn.dataset.periodKey;
+      const action = btn.dataset.periodAction;
+      if (key === 'quarter') {
+        if (action === 'prev')  quarterOffset -= 1;
+        if (action === 'next')  quarterOffset += 1;
+        if (action === 'today') { quarterOffset = 0; customQuarter = null; quarterCustomOpen = false; }
+        if (action === 'toggle-custom') quarterCustomOpen = !quarterCustomOpen;
+        if (action === 'apply-custom') {
+          const s = el.querySelector('.period-custom-start[data-period-key="quarter"]').value;
+          const e = el.querySelector('.period-custom-end[data-period-key="quarter"]').value;
+          if (s && e) { customQuarter = { start: s, end: e }; quarterCustomOpen = false; }
+        }
+        if (action === 'clear-custom') { customQuarter = null; }
+      } else {
+        if (action === 'prev')  weekOffset -= 1;
+        if (action === 'next')  weekOffset += 1;
+        if (action === 'today') { weekOffset = 0; customWeek = null; weekCustomOpen = false; }
+        if (action === 'toggle-custom') weekCustomOpen = !weekCustomOpen;
+        if (action === 'apply-custom') {
+          const s = el.querySelector('.period-custom-start[data-period-key="week"]').value;
+          const e = el.querySelector('.period-custom-end[data-period-key="week"]').value;
+          if (s && e) { customWeek = { start: s, end: e }; weekCustomOpen = false; }
+        }
+        if (action === 'clear-custom') { customWeek = null; }
+      }
+      onChange();
+    });
+  });
+}
+
+// ---------- row mappers for drilldown modals ----------
+
+function leadRow(l, valueFn) {
+  return {
+    id: l.id, type: 'lead',
+    primary: l.company || l.contact || '—',
+    secondary: [l.contact, l.stage].filter(Boolean).join(' · '),
+    value: valueFn ? valueFn(l) : '',
+  };
+}
+
+function projectRow(p, valueFn) {
+  return {
+    id: p.id, type: 'project',
+    primary: p.company || '—',
+    secondary: p.contact || '',
+    value: valueFn ? valueFn(p) : '',
+  };
+}
+
+// ---------- KPI card ----------
+
+function kpiCard(key, label, val, sub, opts = {}) {
+  const border = opts.ok === true ? 'border-color:rgba(76,175,125,.35)' : opts.ok === false ? 'border-color:rgba(224,85,85,.35)' : '';
+  const badge = opts.ok != null
+    ? `<div style="font-size:10px;font-family:var(--mono);padding:2px 7px;border-radius:3px;background:${opts.ok ? 'rgba(76,175,125,.15)' : 'rgba(224,85,85,.15)'};color:${opts.ok ? 'var(--green)' : 'var(--red)'}">${opts.ok ? '✓ ON TRACK' : '✗ BEHIND'}</div>`
+    : '';
+  const bar = opts.target
+    ? (() => {
+        const pct = Math.min(100, Math.round((opts.value / opts.target) * 100));
+        const barColor = pct >= 100 ? 'var(--green)' : pct >= 60 ? 'var(--accent)' : 'var(--red)';
+        return `<div style="margin-top:10px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${pct}% of target</span>
+            <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${money(opts.target)}</span>
+          </div>
+          <div style="height:3px;background:var(--bg4);border-radius:3px">
+            <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px"></div>
+          </div>
+        </div>`;
+      })()
+    : '';
   return `
-    <div class="kpi-card" style="border-color:${ok ? 'rgba(76,175,125,.35)' : 'rgba(224,85,85,.35)'}">
+    <div class="kpi-card" data-kpi="${key}" style="${border}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div class="kpi-label">${label}</div>
-        <div style="font-size:10px;font-family:var(--mono);padding:2px 7px;border-radius:3px;background:${ok ? 'rgba(76,175,125,.15)' : 'rgba(224,85,85,.15)'};color:${ok ? 'var(--green)' : 'var(--red)'}">${ok ? '✓ ON TRACK' : '✗ BEHIND'}</div>
+        ${badge}
       </div>
-      <div class="kpi-val">${displayVal}</div>
-      <div class="kpi-sub">${subtitle}</div>
-      ${progressBar(num, tgt, ok ? 'var(--green)' : 'var(--red)')}
+      <div class="kpi-val">${val}</div>
+      <div class="kpi-sub">${sub}</div>
+      ${bar}
     </div>`;
 }
 
+// ---------- main render ----------
+
 export function renderDashboard(leads, projects) {
-  const el = document.getElementById('dashboardView');
+  const el = document.getElementById('leadDashboardView');
   if (!el) return;
 
-  const [wStart, wEnd] = weekRange();
-  const [qStart, qEnd] = quarterRange();
-  const today = todayStr();
+  const qPeriod = getQuarterPeriod();
+  const wPeriod = getWeekPeriod();
+  const qRef = qPeriod.isCurrent ? todayStr() : qPeriod.end;
+  const wRef = wPeriod.isCurrent ? todayStr() : wPeriod.end;
 
-  // ── Derived metrics ──────────────────────────────────────────────────────
-
-  // Quarterly
-  const wonQ        = leads.filter(l => l.stage === 'Closed Won' && inRange(l.lastActivity, qStart, qEnd));
-  const revClosedQ  = wonQ.reduce((a, l) => a + (parseFloat(l.est) || 0), 0);
-  const revCollQ    = leads.reduce((a, l) => a + (parseFloat(l.collected) || 0), 0)
-                    + projects.reduce((a, p) => a + (p.collected || 0), 0);
+  // ── Quarter-scoped data ──────────────────────────────────────────────────
+  const wonQ       = leads.filter(l => l.stage === 'Closed Won' && inRange(l.lastActivity, qPeriod.start, qRef));
+  const revClosedQ = wonQ.reduce((a, l) => a + (parseFloat(l.est) || 0), 0);
   const biggestDeal = wonQ.length ? Math.max(...wonQ.map(l => parseFloat(l.est) || 0)) : 0;
-  const proposalsQ  = leads.filter(l => inRange(l.proposalDate, qStart, qEnd));
+  const proposalsQ = leads.filter(l => inRange(l.proposalDate, qPeriod.start, qRef));
+  const proposalValQ = proposalsQ.reduce((a, l) => a + (parseFloat(l.est) || 0), 0);
+  const closeRate  = proposalsQ.length ? Math.round((wonQ.length / proposalsQ.length) * 100) : 0;
+  const avgDeal    = wonQ.length ? Math.round(revClosedQ / wonQ.length) : 0;
+  // Collected has no per-payment date field anywhere in the data model — it's a running
+  // cumulative total, not something we can honestly scope to a quarter/week window.
+  const totalCollected = leads.reduce((a, l) => a + (parseFloat(l.collected) || 0), 0)
+                        + projects.reduce((a, p) => a + (p.collected || 0), 0);
 
-  // Weekly
-  const wonW        = leads.filter(l => l.stage === 'Closed Won' && inRange(l.lastActivity, wStart, wEnd));
-  const revClosedW  = wonW.reduce((a, l) => a + (parseFloat(l.est) || 0), 0);
-  const revCollW    = leads.filter(l => inRange(l.lastActivity, wStart, wEnd))
+  // ── Week-scoped data ──────────────────────────────────────────────────────
+  const wonW       = leads.filter(l => l.stage === 'Closed Won' && inRange(l.lastActivity, wPeriod.start, wRef));
+  const revClosedW = wonW.reduce((a, l) => a + (parseFloat(l.est) || 0), 0);
+  const revCollW   = leads.filter(l => inRange(l.lastActivity, wPeriod.start, wRef))
                           .reduce((a, l) => a + (parseFloat(l.collected) || 0), 0);
-  const proposalsW  = leads.filter(l => inRange(l.proposalDate, wStart, wEnd));
+  const proposalsW = leads.filter(l => inRange(l.proposalDate, wPeriod.start, wRef));
   const proposalValW = proposalsW.reduce((a, l) => a + (parseFloat(l.est) || 0), 0);
-  const active      = leads.filter(l => !['Closed Won','Closed Lost','Not Qualified'].includes(l.stage));
-
-  // Pipeline health
-  const stalled     = leads.filter(l => {
+  // "as of" refDate — current stage is all we know (no per-lead stage history), so this
+  // approximates "who's active/at-risk as of that date" rather than a true time-travel snapshot.
+  const active = leads.filter(l => !['Closed Won', 'Closed Lost', 'Not Qualified'].includes(l.stage) && (!l.created_at || l.created_at.slice(0,10) <= wRef));
+  const stalled = leads.filter(l => {
     if (!l.lastActivity) return false;
-    if (['Closed Won','Closed Lost','Not Qualified'].includes(l.stage)) return false;
-    const days = Math.floor((new Date() - new Date(l.lastActivity)) / 86400000);
+    if (['Closed Won', 'Closed Lost', 'Not Qualified'].includes(l.stage)) return false;
+    const days = Math.floor((new Date(wRef) - new Date(l.lastActivity)) / 86400000);
     return days >= 14;
   });
-  const fuOverdue   = leads.filter(l => {
+  const fuOverdue = leads.filter(l => {
     if (!l.followupDate) return false;
-    if (['Closed Won','Closed Lost','Not Qualified'].includes(l.stage)) return false;
-    return l.followupDate < today;
+    if (['Closed Won', 'Closed Lost', 'Not Qualified'].includes(l.stage)) return false;
+    return l.followupDate < wRef;
   });
-
-  // Close rate (all time)
-  const allProposals = leads.filter(l => ['Proposal Sent','Negotiation','Closed Won'].includes(l.stage) || l.proposalDate);
-  const allWon       = leads.filter(l => l.stage === 'Closed Won');
-  const closeRate    = allProposals.length ? Math.round((allWon.length / allProposals.length) * 100) : 0;
-  const avgDeal      = allWon.length ? Math.round(allWon.reduce((a, l) => a + (parseFloat(l.est) || 0), 0) / allWon.length) : 0;
-
-  // Project health
-  const projOverdue  = projects.filter(p => stageStatus(p) === 'overdue');
-  const projAtRisk   = projects.filter(p => stageStatus(p) === 'at-risk');
-  const payPending   = projects.filter(p =>
-    (p.stage >= 2 && !p.deposit_20_paid) ||
-    (p.stage >= 6 && !p.payment_50_paid) ||
-    (p.stage >= 11 && !p.final_paid)
-  );
-  const totalEstProj = projects.reduce((a, p) => a + (p.est_value || 0), 0);
-  const totalCollProj = projects.reduce((a, p) => a + (p.collected || 0), 0);
 
   // ── HTML ─────────────────────────────────────────────────────────────────
 
   el.innerHTML = `
-
-  <!-- QUARTERLY TARGETS -->
+  <!-- QUARTER PERFORMANCE -->
   <div class="section-divider" style="margin-bottom:1rem">
-    <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.08em">
-      Q${Math.floor(new Date().getMonth()/3)+1} Quarterly Targets · ends ${qEnd}
-    </span>
+    <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Quarter Performance</span>
   </div>
-  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:2rem">
-    <div class="kpi-card">
-      <div class="kpi-label">Revenue Closed</div>
-      <div class="kpi-val">$${revClosedQ.toLocaleString()}</div>
-      <div class="kpi-sub">of $275,000 target</div>
-      ${progressBar(revClosedQ, 275000)}
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Revenue Collected</div>
-      <div class="kpi-val">$${revCollQ.toLocaleString()}</div>
-      <div class="kpi-sub">of $275,000 target</div>
-      ${progressBar(revCollQ, 275000)}
-    </div>
-    <div class="kpi-card" style="${biggestDeal >= 100000 ? 'border-color:rgba(76,175,125,.4)' : ''}">
-      <div class="kpi-label">Biggest deal closed</div>
-      <div class="kpi-val" style="color:${biggestDeal >= 100000 ? 'var(--green)' : 'var(--text)'}">${biggestDeal ? '$' + biggestDeal.toLocaleString() : '—'}</div>
-      <div class="kpi-sub">${biggestDeal >= 100000 ? '✓ $100K+ target hit' : 'Target: $100,000+'}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Proposals this quarter</div>
-      <div class="kpi-val">${proposalsQ.length}</div>
-      <div class="kpi-sub">5+ per week target</div>
-      ${progressBar(proposalsQ.length, 65)}
-    </div>
+  <div id="quarterPeriodBar"></div>
+  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:2rem">
+    ${kpiCard('revClosedQ', 'Revenue Closed', money(revClosedQ), `of $275,000 target`, { value: revClosedQ, target: 275000 })}
+    ${kpiCard('totalCollected', 'Total Collected', money(totalCollected), 'cumulative to date · not period-scoped', {})}
+    ${kpiCard('biggestDealQ', 'Biggest deal closed', biggestDeal ? money(biggestDeal) : '—', biggestDeal >= 100000 ? '✓ $100K+ target hit' : 'Target: $100,000+', { ok: biggestDeal >= 100000 ? true : null })}
+    ${kpiCard('proposalsQ', 'Proposals this period', proposalsQ.length, `${money(proposalValQ)} proposed value`, { value: proposalsQ.length, target: 65 })}
+    ${kpiCard('closeRateQ', 'Close rate', closeRate + '%', `${wonQ.length} won / ${proposalsQ.length} proposals in period`, {})}
+    ${kpiCard('avgDealQ', 'Avg deal size', avgDeal ? money(avgDeal) : '—', avgDeal >= 20000 ? '✓ Trending toward $20K+ target' : 'Target: $20,000+ AOV', { ok: avgDeal >= 20000 ? true : null })}
   </div>
 
-  <!-- WEEKLY SCORECARD -->
+  <!-- WEEK PERFORMANCE + PIPELINE HEALTH -->
   <div class="section-divider" style="margin-bottom:1rem">
-    <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.08em">
-      Weekly Scorecard · ${wStart} – ${wEnd}
-    </span>
+    <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Week Performance &amp; Pipeline Health</span>
   </div>
-  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:2rem">
-    ${scorecardCard('Revenue closed this week', revClosedW, 21500, 'currency', `vs $21,500 target`)}
-    ${scorecardCard('Revenue collected this week', revCollW, 21500, 'currency', `vs $21,500 target`)}
-    <div class="kpi-card" style="border-color:${proposalsW.length >= 5 && proposalValW >= 50000 ? 'rgba(76,175,125,.35)' : 'rgba(224,85,85,.35)'}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div class="kpi-label">Proposals sent</div>
-        <div style="font-size:10px;font-family:var(--mono);padding:2px 7px;border-radius:3px;background:${proposalsW.length >= 5 ? 'rgba(76,175,125,.15)' : 'rgba(224,85,85,.15)'};color:${proposalsW.length >= 5 ? 'var(--green)' : 'var(--red)'}">${proposalsW.length >= 5 ? '✓ ON TRACK' : '✗ BEHIND'}</div>
-      </div>
-      <div class="kpi-val">${proposalsW.length}</div>
-      <div class="kpi-sub">$${proposalValW.toLocaleString()} proposed value</div>
-      ${progressBar(proposalsW.length, 5)}
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Active deals</div>
-      <div class="kpi-val">${active.length}</div>
-      <div class="kpi-sub">in pipeline right now</div>
-    </div>
+  <div id="weekPeriodBar"></div>
+  <div style="font-size:11px;color:var(--text3);margin:8px 0 12px">
+    ${wPeriod.isCurrent ? 'Showing current, real-time risk.' : `Showing risk as of ${wPeriod.end} — based on each lead's current stage (no historical stage snapshots are kept).`}
   </div>
-
-  <!-- PIPELINE HEALTH + MONTHLY -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:2rem">
-
-    <div>
-      <div class="section-divider" style="margin-bottom:1rem">
-        <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Pipeline Health</span>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="kpi-card" style="${stalled.length ? 'border-color:rgba(224,85,85,.4)' : ''}">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <div>
-              <div class="kpi-label">Stalled deals</div>
-              <div style="font-size:11px;color:var(--text3);margin-top:2px">No activity in 14+ days</div>
-            </div>
-            <div style="font-size:28px;font-weight:500;color:${stalled.length ? 'var(--red)' : 'var(--text3)'}">${stalled.length}</div>
-          </div>
-          ${stalled.length ? `<div style="margin-top:10px;display:flex;flex-direction:column;gap:4px">${stalled.slice(0,3).map(l => `<div style="font-size:11px;color:var(--text2);display:flex;justify-content:space-between"><span>${l.company}</span><span style="color:var(--red);font-family:var(--mono)">${Math.floor((new Date()-new Date(l.lastActivity))/86400000)}d</span></div>`).join('')}${stalled.length > 3 ? `<div style="font-size:10px;color:var(--text3)">+${stalled.length-3} more</div>` : ''}</div>` : ''}
-        </div>
-        <div class="kpi-card" style="${fuOverdue.length ? 'border-color:rgba(224,85,85,.4)' : ''}">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <div>
-              <div class="kpi-label">Follow-ups overdue</div>
-              <div style="font-size:11px;color:var(--text3);margin-top:2px">Past agreed follow-up date</div>
-            </div>
-            <div style="font-size:28px;font-weight:500;color:${fuOverdue.length ? 'var(--red)' : 'var(--text3)'}">${fuOverdue.length}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div>
-      <div class="section-divider" style="margin-bottom:1rem">
-        <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Monthly Metrics</span>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="kpi-card">
-          <div class="kpi-label">Close rate (all time)</div>
-          <div class="kpi-val">${closeRate}%</div>
-          <div class="kpi-sub">${allWon.length} won / ${allProposals.length} proposals sent</div>
-          <div style="height:3px;background:var(--bg4);border-radius:3px;margin-top:10px">
-            <div style="height:100%;width:${Math.min(100,closeRate)}%;background:var(--accent);border-radius:3px"></div>
-          </div>
-        </div>
-        <div class="kpi-card" style="${avgDeal >= 20000 ? 'border-color:rgba(76,175,125,.4)' : ''}">
-          <div class="kpi-label">Avg deal size</div>
-          <div class="kpi-val" style="color:${avgDeal >= 20000 ? 'var(--green)' : 'var(--text)'}">${avgDeal ? '$' + avgDeal.toLocaleString() : '—'}</div>
-          <div class="kpi-sub">${avgDeal >= 20000 ? '✓ Trending toward $20K+ target' : 'Target: $20,000+ AOV'}</div>
-        </div>
-      </div>
-    </div>
+  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:14px">
+    ${kpiCard('revClosedW', 'Revenue closed this week', money(revClosedW), 'vs $21,500 target', { value: revClosedW, target: 21500 })}
+    ${kpiCard('revCollW', 'Revenue collected this week', money(revCollW), 'vs $21,500 target', { value: revCollW, target: 21500 })}
+    ${kpiCard('proposalsW', 'Proposals sent', proposalsW.length, `${money(proposalValW)} proposed value`, { ok: proposalsW.length >= 5, value: proposalsW.length, target: 5 })}
+    ${kpiCard('active', 'Active deals', active.length, 'in pipeline as of this period', {})}
   </div>
-
-  <!-- PROJECT TRACKING SUMMARY -->
-  <div class="section-divider" style="margin-bottom:1rem">
-    <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.08em">B2B Project Tracking Summary</span>
-  </div>
-  <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">
-    <div class="kpi-card">
-      <div class="kpi-label">Active projects</div>
-      <div class="kpi-val">${projects.filter(p => p.stage < 14).length}</div>
-      <div class="kpi-sub">${projects.length} total</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:2rem">
+    <div class="kpi-card" data-kpi="stalled" style="${stalled.length ? 'border-color:rgba(224,85,85,.4)' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div class="kpi-label">Stalled deals</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">No activity in 14+ days</div>
+        </div>
+        <div style="font-size:28px;font-weight:500;color:${stalled.length ? 'var(--red)' : 'var(--text3)'}">${stalled.length}</div>
+      </div>
+      ${stalled.length ? `<div class="kpi-scroll-list">${[...stalled]
+          .sort((a, b) => a.lastActivity.localeCompare(b.lastActivity))
+          .map(l => `<div class="kpi-scroll-row" data-open-lead="${l.id}"><span>${l.company || l.contact}</span><span style="color:var(--red);font-family:var(--mono);font-size:11px">${Math.floor((new Date(wRef) - new Date(l.lastActivity)) / 86400000)}d</span></div>`)
+          .join('')}</div>` : ''}
     </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Est. project value</div>
-      <div class="kpi-val">$${totalEstProj.toLocaleString()}</div>
-      <div class="kpi-sub">across all projects</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Total collected</div>
-      <div class="kpi-val" style="color:var(--green)">$${totalCollProj.toLocaleString()}</div>
-      <div class="kpi-sub">of $${totalEstProj.toLocaleString()} est.</div>
-    </div>
-    <div class="kpi-card" style="${projOverdue.length || projAtRisk.length ? 'border-color:rgba(224,85,85,.4)' : ''}">
-      <div class="kpi-label">Overdue stages</div>
-      <div class="kpi-val" style="color:${projOverdue.length ? 'var(--red)' : 'var(--text3)'}">${projOverdue.length}</div>
-      <div class="kpi-sub">${projAtRisk.length} at risk</div>
-    </div>
-    <div class="kpi-card" style="${payPending.length ? 'border-color:rgba(240,192,64,.4)' : ''}">
-      <div class="kpi-label">Payments pending</div>
-      <div class="kpi-val" style="color:${payPending.length ? 'var(--accent)' : 'var(--text3)'}">${payPending.length}</div>
-      <div class="kpi-sub">across all projects</div>
+    <div class="kpi-card" data-kpi="fuOverdue" style="${fuOverdue.length ? 'border-color:rgba(224,85,85,.4)' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div class="kpi-label">Follow-ups overdue</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Past agreed follow-up date</div>
+        </div>
+        <div style="font-size:28px;font-weight:500;color:${fuOverdue.length ? 'var(--red)' : 'var(--text3)'}">${fuOverdue.length}</div>
+      </div>
+      ${fuOverdue.length ? `<div class="kpi-scroll-list">${[...fuOverdue]
+          .sort((a, b) => a.followupDate.localeCompare(b.followupDate))
+          .map(l => `<div class="kpi-scroll-row" data-open-lead="${l.id}"><span>${l.company || l.contact}</span><span style="color:var(--red);font-family:var(--mono);font-size:11px">${l.followupDate}</span></div>`)
+          .join('')}</div>` : ''}
     </div>
   </div>`;
+
+  // ── period control bars ────────────────────────────────────────────────
+  document.getElementById('quarterPeriodBar').innerHTML = periodControlHtml('quarter', qPeriod, quarterCustomOpen);
+  document.getElementById('weekPeriodBar').innerHTML    = periodControlHtml('week', wPeriod, weekCustomOpen);
+  wireperiodControls(document.getElementById('quarterPeriodBar'), () => renderDashboard(leads, projects));
+  wireperiodControls(document.getElementById('weekPeriodBar'), () => renderDashboard(leads, projects));
+
+  // ── drilldowns ───────────────────────────────────────────────────────────
+  const money2 = v => money(parseFloat(v) || 0);
+  const drilldowns = {
+    revClosedQ:     () => renderListDetail('Revenue Closed', qPeriod.label, wonQ.map(l => leadRow(l, x => money2(x.est)))),
+    totalCollected: () => renderListDetail('Total Collected to Date', 'Cumulative across all leads & projects', [
+      ...leads.filter(l => parseFloat(l.collected) > 0).map(l => leadRow(l, x => money2(x.collected))),
+      ...projects.filter(p => p.collected > 0).map(p => projectRow(p, x => money2(x.collected))),
+    ]),
+    biggestDealQ:   () => renderListDetail('Deals Closed', qPeriod.label, [...wonQ].sort((a,b) => (parseFloat(b.est)||0)-(parseFloat(a.est)||0)).map(l => leadRow(l, x => money2(x.est)))),
+    proposalsQ:     () => renderListDetail('Proposals Sent', qPeriod.label, proposalsQ.map(l => leadRow(l, x => money2(x.est)))),
+    closeRateQ:     () => renderListDetail('Won Deals (of proposals in period)', qPeriod.label, wonQ.map(l => leadRow(l, x => money2(x.est)))),
+    avgDealQ:       () => renderListDetail('Deals Closed', qPeriod.label, wonQ.map(l => leadRow(l, x => money2(x.est)))),
+    revClosedW:     () => renderListDetail('Revenue Closed This Week', wPeriod.label, wonW.map(l => leadRow(l, x => money2(x.est)))),
+    revCollW:       () => renderListDetail('Revenue Collected This Week', wPeriod.label, leads.filter(l => inRange(l.lastActivity, wPeriod.start, wRef) && parseFloat(l.collected) > 0).map(l => leadRow(l, x => money2(x.collected)))),
+    proposalsW:     () => renderListDetail('Proposals Sent This Week', wPeriod.label, proposalsW.map(l => leadRow(l, x => money2(x.est)))),
+    active:         () => renderListDetail('Active Deals', wPeriod.label, active.map(l => leadRow(l, x => x.est ? money2(x.est) : ''))),
+    stalled:        () => renderListDetail('Stalled Deals', 'No activity in 14+ days · ' + wPeriod.label, stalled.map(l => leadRow(l, x => Math.floor((new Date(wRef) - new Date(x.lastActivity)) / 86400000) + 'd stale'))),
+    fuOverdue:      () => renderListDetail('Follow-ups Overdue', wPeriod.label, fuOverdue.map(l => leadRow(l, x => x.followupDate))),
+  };
+  el.querySelectorAll('[data-kpi]').forEach(card => {
+    const fn = drilldowns[card.dataset.kpi];
+    if (!fn) return;
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', e => {
+      if (e.target.closest('[data-open-lead]')) return; // let scroll-row clicks pass through
+      fn();
+    });
+  });
 }
