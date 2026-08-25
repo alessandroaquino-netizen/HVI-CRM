@@ -249,5 +249,5 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); font
 .activity-meta span + span { margin-left: 4px; }
 .activity-comment { font-size: 12px; color: var(--text2); line-height: 1.5; }
 .activity-comment em { color: var(--text3); font-style: normal; }
-#pdCommentInput { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-family: var(--font); font-size: 12px; padding: 7px 10px; outline: none; }
-#pdCommentInput:focus { border-color: var(--accent); }
+#pdCommentInput, #mdCommentInput { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-family: var(--font); font-size: 12px; padding: 7px 10px; outline: none; }
+#pdCommentInput:focus, #mdCommentInput:focus { border-color: var(--accent); }

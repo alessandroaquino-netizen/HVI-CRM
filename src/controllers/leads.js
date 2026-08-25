@@ -23,6 +23,7 @@ export function rowToLead(r) {
     collected:    r.collected != null ? String(r.collected) : '',
     stage_changed_at: r.stage_changed_at || '',
     created_at:   r.created_at ? r.created_at.slice(0, 10) : '',
+    cadenceTotal: r.cadence_total != null ? String(r.cadence_total) : '',
   };
 }
 
@@ -45,6 +46,7 @@ function leadToRow(l) {
     notes:            l.notes        || null,
     collected:        l.collected !== '' && l.collected != null ? parseFloat(l.collected) : null,
     stage_changed_at: l.stage_changed_at || null,
+    cadence_total:    l.cadenceTotal !== '' && l.cadenceTotal != null ? parseInt(l.cadenceTotal, 10) : null,
   };
 }
 
@@ -81,9 +83,11 @@ export async function saveLead(lead, editingId = null) {
   if (editingId) {
     const { error } = await supabase.from('leads').update(row).eq('id', editingId);
     if (error) throw error;
+    return editingId;
   } else {
-    const { error } = await supabase.from('leads').insert(row);
+    const { data, error } = await supabase.from('leads').insert(row).select('id').single();
     if (error) throw error;
+    return data.id;
   }
 }
 
