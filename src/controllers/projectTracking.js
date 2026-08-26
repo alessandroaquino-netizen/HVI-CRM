@@ -1,16 +1,19 @@
 import { supabase } from '../supabase.js';
+import { PROJECT_STAGES } from './projects.js';
 
 // ---------- field mapping ----------
 
 function rowToStageDate(r) {
   return {
-    id:          r.id,
-    project_id:  r.project_id,
-    stage:       r.stage,
-    target_date: r.target_date || '',
-    is_actual:   !!r.is_actual,
-    note:        r.note || '',
-    updated_at:  r.updated_at || '',
+    id:               r.id,
+    project_id:       r.project_id,
+    stage:            r.stage,
+    start_date:       r.start_date       || '',
+    planned_end_date: r.planned_end_date || '',
+    actual_end_date:  r.actual_end_date  || '',
+    status:           r.status           || 'To be Started',
+    assignee:         r.assignee         || '',
+    updated_at:       r.updated_at       || '',
   };
 }
 
@@ -39,15 +42,17 @@ export function stageDatesForProject(allStageDates, projectId) {
   return allStageDates.filter(d => d.project_id === projectId);
 }
 
-// rows: [{ stage, target_date, is_actual, note }] — only rows that changed need to be passed
+// rows: [{ stage, start_date, planned_end_date, actual_end_date, status, assignee }]
 export async function saveStageDates(projectId, rows) {
   const payload = rows.map(r => ({
-    project_id:  projectId,
-    stage:       r.stage,
-    target_date: r.target_date || null,
-    is_actual:   !!r.is_actual,
-    note:        r.note || null,
-    updated_at:  new Date().toISOString(),
+    project_id:       projectId,
+    stage:            r.stage,
+    start_date:       r.start_date       || null,
+    planned_end_date: r.planned_end_date || null,
+    actual_end_date:  r.actual_end_date  || null,
+    status:           r.status           || 'To be Started',
+    assignee:         r.assignee         || null,
+    updated_at:       new Date().toISOString(),
   }));
   const { error } = await supabase
     .from('project_stage_dates')
@@ -159,4 +164,24 @@ export function avgCompletionDays(activity) {
   });
 
   return totals.length ? totals.reduce((a, b) => a + b, 0) / totals.length : null;
+}
+
+// Planned vs. actual variance in days (actual_end_date − planned_end_date), averaged per phase.
+// Only stages with both dates set are counted. Returns { [phaseNumber]: { compared, avgVarianceDays } }.
+export function plannedVsActualByPhase(stageDates) {
+  const byPhase = {};
+  stageDates.forEach(d => {
+    if (!d.planned_end_date || !d.actual_end_date) return;
+    const stageDef = PROJECT_STAGES.find(s => s.n === d.stage);
+    if (!stageDef) return;
+    const varianceDays = (new Date(d.actual_end_date) - new Date(d.planned_end_date)) / 86400000;
+    const p = (byPhase[stageDef.phase] ||= { compared: 0, totalVarianceDays: 0 });
+    p.compared += 1;
+    p.totalVarianceDays += varianceDays;
+  });
+  const result = {};
+  Object.entries(byPhase).forEach(([phase, p]) => {
+    result[phase] = { compared: p.compared, avgVarianceDays: p.totalVarianceDays / p.compared };
+  });
+  return result;
 }

@@ -59,9 +59,9 @@ function render() {
   if (currentView === 'list')              renderList(getFiltered());
   if (currentView === 'disc')              renderDisc();
   if (currentView === 'followups')         renderFollowups(leads);
-  if (currentView === 'projects')          renderProjects(projects);
+  if (currentView === 'projects')          renderProjects(projects, leads);
   if (currentView === 'leadDashboard')     renderDashboard(leads, projects);
-  if (currentView === 'projectsDashboard') renderProjectsDashboard(projects, projectActivity);
+  if (currentView === 'projectsDashboard') renderProjectsDashboard(projects, projectActivity, projectStageDates);
 }
 
 async function refresh() {
@@ -190,6 +190,15 @@ function openProjectDetail(id) {
   );
 }
 
+function openProjectFromLead(leadId) {
+  const lead = leads.find(l => l.id === leadId);
+  if (!lead) return;
+  editingProjectId = null;
+  renderProjectForm({
+    company: lead.company, contact: lead.contact, lead_id: lead.id, est_value: lead.est,
+  }, null, leads, { onSave: handleProjectSave });
+}
+
 function openProjectAdd() {
   editingProjectId = null;
   renderProjectForm({}, null, leads, { onSave: handleProjectSave });
@@ -285,8 +294,10 @@ function wireEvents() {
     if (e.target === document.getElementById('modalOverlay')) closeModal();
   });
 
-  // Delegated clicks for lead cards and project cards
+  // Delegated clicks for lead cards, project cards, and backlog "Start project"
   document.addEventListener('click', e => {
+    const startEl = e.target.closest('[data-start-project]');
+    if (startEl) { openProjectFromLead(startEl.dataset.startProject); return; }
     const leadEl = e.target.closest('[data-open-lead]');
     if (leadEl) { openDetail(leadEl.dataset.openLead); return; }
     const projEl = e.target.closest('[data-open-project]');

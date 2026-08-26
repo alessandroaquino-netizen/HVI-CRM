@@ -3,6 +3,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
+  color-scheme: dark;
   --bg: #0e0e0e;
   --bg2: #161616;
   --bg3: #1f1f1f;
@@ -218,11 +219,13 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); font
 
 /* Project board — one row of all 14 stages, same interaction language as .pipeline-grid
    but flex + horizontal scroll since 14 even grid columns wouldn't stay readable */
-.proj-summary { display: grid; grid-template-columns: repeat(5,1fr); gap: 10px; margin-bottom: 1.5rem; }
-.proj-kanban { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; align-items: flex-start; }
-.proj-stage-col { flex: 0 0 190px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px; }
+#projectsView { display: flex; flex-direction: column; min-height: 100%; }
+.proj-summary { display: grid; grid-template-columns: repeat(6,1fr); gap: 10px; margin-bottom: 1.5rem; }
+.proj-kanban { display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden; padding-bottom: 10px; align-items: stretch; flex: 1; }
+.proj-stage-col { flex: 0 0 190px; display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px; }
+.proj-stage-col.backlog { border-style: dashed; border-color: var(--border2); }
 .proj-stage-header { font-size: 10px; font-family: var(--mono); color: var(--text3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px; padding: 0 0 8px 8px; border-bottom: 1px solid var(--border); border-left: 3px solid currentColor; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.proj-cards { display: flex; flex-direction: column; gap: 6px; }
+.proj-cards { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; }
 .proj-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; cursor: pointer; transition: border-color .15s, background .15s; }
 .proj-card:hover { background: var(--bg4); border-color: var(--border2); }
 .proj-card-company { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -234,12 +237,15 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); font
 
 /* Project stage timeline */
 .timeline-list { max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 8px; }
-.timeline-row { display: grid; grid-template-columns: 1fr 122px 62px 1fr; gap: 6px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border); }
+.timeline-row { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .timeline-row:last-child { border-bottom: none; }
-.timeline-stage-label { font-size: 11px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.timeline-date, .timeline-note { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: var(--font); font-size: 11px; padding: 4px 6px; width: 100%; outline: none; }
-.timeline-date:focus, .timeline-note:focus { border-color: var(--accent); }
-.timeline-actual { display: flex; align-items: center; gap: 3px; color: var(--text3); font-size: 10px; white-space: nowrap; cursor: pointer; }
+.timeline-row-head { display: flex; align-items: center; gap: 6px; }
+.timeline-stage-label { font-size: 11px; color: var(--text2); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timeline-status, .timeline-assignee { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: var(--font); font-size: 10px; padding: 3px 5px; outline: none; }
+.timeline-row-dates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.timeline-row-dates label { display: flex; flex-direction: column; gap: 2px; font-size: 9px; color: var(--text3); font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+.timeline-row-dates input[type="date"] { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: var(--font); font-size: 11px; padding: 4px 6px; outline: none; }
+.timeline-row-dates input[type="date"]:focus { border-color: var(--accent); }
 
 /* Project activity feed */
 .activity-list { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }

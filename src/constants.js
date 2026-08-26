@@ -12,6 +12,10 @@ export const SEGMENTS = [
   'High voltage contractor', 'Utility company', 'Union local', 'Other',
 ];
 
+export const PROJECT_STATUSES = ['To be Started', 'In Progress', 'On Hold', 'Complete'];
+
+export const TEAM_MEMBERS = ['Alessandro', 'Tony', 'Adriana'];
+
 export const DISC = {
   D: {
     label: 'Dominant',

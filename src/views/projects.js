@@ -1,4 +1,5 @@
 import { PROJECT_STAGES, PHASES, daysAtStage, stageStatus } from '../controllers/projects.js';
+import { PROJECT_STATUSES, TEAM_MEMBERS } from '../constants.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -56,9 +57,25 @@ function projectCard(project) {
 
 // ─── main render ──────────────────────────────────────────────────────────
 
-export function renderProjects(projects) {
+function backlogCard(lead) {
+  const val = lead.est ? `$${parseFloat(lead.est).toLocaleString()}` : '';
+  const closed = daysAgo(lead.lastActivity);
+  return `<div class="proj-card" data-open-lead="${lead.id}">
+    <div class="proj-card-company">${lead.company || '—'}</div>
+    <div class="proj-card-contact">${lead.contact || '—'}</div>
+    <div class="proj-card-meta">
+      ${val ? `<span class="est-tag">${val}</span>` : ''}
+    </div>
+    ${closed != null ? `<div class="proj-card-updated">closed ${closed === 0 ? 'today' : closed + 'd ago'}</div>` : ''}
+    <button class="btn btn-sm btn-accent" data-start-project="${lead.id}" style="margin-top:6px;width:100%">Start project</button>
+  </div>`;
+}
+
+export function renderProjects(projects, leads) {
   const container = document.getElementById('projectsView');
   if (!container) return;
+
+  const backlog = leads.filter(l => l.stage === 'Closed Won' && !projects.some(p => p.lead_id === l.id));
 
   // Summary bar
   const active   = projects.filter(p => p.stage < 14);
@@ -89,10 +106,24 @@ export function renderProjects(projects) {
         <div class="kpi-label">At risk</div>
         <div class="kpi-val" style="font-size:22px;color:${atRisk.length ? 'var(--accent)' : 'var(--text3)'}">${atRisk.length}</div>
       </div>
+      <div class="kpi-card" style="padding:.9rem 1.1rem">
+        <div class="kpi-label">Project backlog</div>
+        <div class="kpi-val" style="font-size:22px">${backlog.length}</div>
+      </div>
     </div>`;
 
-  // Kanban — all 14 stages side by side, same lateral-progress pattern as the Leads Pipeline
+  // Kanban — backlog, then all 14 stages side by side, same lateral-progress pattern as the Leads Pipeline
   html += '<div class="proj-kanban">';
+  html += `
+    <div class="proj-stage-col backlog">
+      <div class="proj-stage-header" style="color:var(--text3)">
+        <span style="color:var(--text2)">Project backlog</span>
+        <span class="stage-count">${backlog.length || ''}</span>
+      </div>
+      <div class="proj-cards">
+        ${backlog.length ? backlog.map(backlogCard).join('') : '<div class="empty-col">—</div>'}
+      </div>
+    </div>`;
   PROJECT_STAGES.forEach(stage => {
     const phase = PHASES.find(p => p.n === stage.phase);
     const stageProjects = projects.filter(p => p.stage === stage.n);
@@ -100,7 +131,7 @@ export function renderProjects(projects) {
       <div class="proj-stage-col">
         <div class="proj-stage-header" style="color:#${phase.color}">
           ${typeIcon(stage.type)}
-          <span style="color:var(--text3)">${stage.n}. ${stage.label}</span>
+          <span style="color:var(--text2)">${stage.n}. ${stage.label}</span>
           <span class="stage-count">${stageProjects.length || ''}</span>
           ${stage.sla ? `<span style="font-size:9px;color:var(--text3);font-family:var(--mono);margin-left:auto">SLA ${stage.sla}d</span>` : ''}
         </div>
@@ -174,10 +205,16 @@ export function renderProjectDetail(project, leads, stageDates, activity, { onEd
           const d = stageDates.find(sd => sd.stage === s.n) || {};
           return `
             <div class="timeline-row" data-timeline-stage="${s.n}">
-              <span class="timeline-stage-label">${s.n}. ${s.label}</span>
-              <input type="date" class="timeline-date" value="${d.target_date || ''}">
-              <label class="timeline-actual"><input type="checkbox" class="timeline-is-actual" ${d.is_actual ? 'checked' : ''}> Actual</label>
-              <input type="text" class="timeline-note" placeholder="note" value="${d.note || ''}">
+              <div class="timeline-row-head">
+                <span class="timeline-stage-label">${s.n}. ${s.label}</span>
+                <select class="timeline-status">${PROJECT_STATUSES.map(st => `<option value="${st}" ${(d.status || 'To be Started') === st ? 'selected' : ''}>${st}</option>`).join('')}</select>
+                <select class="timeline-assignee"><option value="">— Unassigned —</option>${TEAM_MEMBERS.map(m => `<option value="${m}" ${d.assignee === m ? 'selected' : ''}>${m}</option>`).join('')}</select>
+              </div>
+              <div class="timeline-row-dates">
+                <label>Start<input type="date" class="timeline-start" value="${d.start_date || ''}"></label>
+                <label>Planned end<input type="date" class="timeline-planned" value="${d.planned_end_date || ''}"></label>
+                <label>Actual end<input type="date" class="timeline-actualend" value="${d.actual_end_date || ''}"></label>
+              </div>
             </div>`;
         }).join('')}
       </div>
@@ -213,10 +250,12 @@ export function renderProjectDetail(project, leads, stageDates, activity, { onEd
   });
   document.getElementById('pdSaveTimelineBtn').addEventListener('click', () => {
     const rows = Array.from(document.querySelectorAll('[data-timeline-stage]')).map(row => ({
-      stage:       parseInt(row.dataset.timelineStage, 10),
-      target_date: row.querySelector('.timeline-date').value || null,
-      is_actual:   row.querySelector('.timeline-is-actual').checked,
-      note:        row.querySelector('.timeline-note').value.trim(),
+      stage:            parseInt(row.dataset.timelineStage, 10),
+      start_date:       row.querySelector('.timeline-start').value || null,
+      planned_end_date: row.querySelector('.timeline-planned').value || null,
+      actual_end_date:  row.querySelector('.timeline-actualend').value || null,
+      status:           row.querySelector('.timeline-status').value,
+      assignee:         row.querySelector('.timeline-assignee').value || null,
     }));
     onSaveTimeline(project.id, rows);
   });
