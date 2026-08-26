@@ -13,9 +13,45 @@ export function openModal(html) {
   overlay().classList.remove('hidden');
 }
 
+// ---------- generic drilldown list ----------
+// rows: [{ id, type: 'lead'|'project', primary, secondary, value }]
+// Reuses the delegated data-open-lead / data-open-project click handler in main.js —
+// clicking a row just opens the real record, no extra wiring needed here.
+
+export function renderListDetail(title, subtitle, rows) {
+  const rowHtml = r => `
+    <div class="drilldown-row" ${r.type === 'project' ? `data-open-project="${r.id}"` : `data-open-lead="${r.id}"`}>
+      <div>
+        <div class="drilldown-primary">${r.primary || '—'}</div>
+        ${r.secondary ? `<div class="drilldown-secondary">${r.secondary}</div>` : ''}
+      </div>
+      ${r.value ? `<div class="drilldown-value">${r.value}</div>` : ''}
+    </div>`;
+
+  openModal(`
+    <div class="modal-header">
+      <h3>${title}</h3>
+      <button class="btn btn-sm btn-ghost" id="ldCloseBtn">✕</button>
+    </div>
+    <div class="modal-body">
+      ${subtitle ? `<div style="font-size:12px;color:var(--text3);margin-bottom:12px">${subtitle}</div>` : ''}
+      ${rows.length
+        ? `<div class="drilldown-list">${rows.map(rowHtml).join('')}</div>`
+        : '<div style="color:var(--text3);font-size:13px;padding:1rem 0">No records for this selection.</div>'}
+    </div>`);
+
+  document.getElementById('ldCloseBtn').addEventListener('click', closeModal);
+}
+
 // ---------- detail ----------
 
-export function renderDetail(lead, { onEdit, onDelete, onStageChange }) {
+function addDays(dateStr, days) {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+export function renderDetail(lead, activity, { onEdit, onDelete, onStageChange, onAddComment, onDuplicate }) {
   const disc = lead.disc ? DISC[lead.disc] : null;
 
   const stagePills = STAGES.map(s =>
@@ -39,6 +75,17 @@ export function renderDetail(lead, { onEdit, onDelete, onStageChange }) {
   const fuStatus = followupStatus(lead);
   const fuColor  = fuStatus === 'overdue' ? 'var(--red)' : fuStatus === 'today' ? 'var(--accent)' : 'var(--text)';
 
+  const cadenceTotal = parseInt(lead.cadenceTotal, 10) || 0;
+  const touches = activity.filter(a => a.touch_number != null);
+  const touchCount = touches.length ? Math.max(...touches.map(a => a.touch_number)) : 0;
+  const lastTouch = touches[0]; // activity is fetched newest-first
+  const nextSuggested = lastTouch ? addDays(lastTouch.created_at, 30) : null;
+  const cadenceBlock = cadenceTotal ? `
+    <div class="section-divider" style="margin-top:1.5rem">Follow-up cadence</div>
+    <div style="font-size:12px;color:var(--text2);margin-top:8px">
+      Touch ${touchCount} of ${cadenceTotal}${nextSuggested ? ` · next suggested ${nextSuggested}` : ''}
+    </div>` : '';
+
   openModal(`
     <div class="modal-header">
       <h3>${lead.contact || 'Lead'}</h3>
@@ -54,6 +101,7 @@ export function renderDetail(lead, { onEdit, onDelete, onStageChange }) {
           <div class="detail-name">${lead.contact || '—'}</div>
           <div class="detail-sub">${[lead.title, lead.company].filter(Boolean).join(' · ')}</div>
         </div>
+        <button class="btn btn-sm btn-ghost" id="mdDuplicateBtn">New opportunity from this contact</button>
       </div>
       <div class="section-divider">Stage</div>
       <div class="stage-selector" style="margin-bottom:1.5rem">${stagePills}</div>
@@ -72,14 +120,42 @@ export function renderDetail(lead, { onEdit, onDelete, onStageChange }) {
       </div>
       ${lead.notes ? `<div style="margin-top:1rem"><div class="section-divider">Notes</div><div class="notes-display" style="margin-top:8px">${lead.notes}</div></div>` : ''}
       ${discBlock}
+      ${cadenceBlock}
+
+      <div class="section-divider" style="margin-top:1.5rem">Activity</div>
+      <div class="activity-list" style="margin-top:8px">
+        ${activity.length ? activity.map(a => `
+          <div class="activity-row">
+            <div class="activity-meta">
+              <span>${new Date(a.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+              ${a.created_by ? `<span>· ${a.created_by}</span>` : ''}
+              ${a.touch_number ? `<span>· Touch ${a.touch_number}</span>` : ''}
+            </div>
+            <div class="activity-comment">${a.event_type === 'stage_change' ? `<em>${a.comment}</em>` : a.comment}</div>
+          </div>`).join('') : '<div style="color:var(--text3);font-size:12px;padding:.5rem 0">No activity yet.</div>'}
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;align-items:center">
+        <input type="text" id="mdCommentInput" placeholder="Add a comment...">
+        ${cadenceTotal ? `<label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text3);white-space:nowrap"><input type="checkbox" id="mdTouchCheckbox"> Count as touch point</label>` : ''}
+        <button class="btn btn-sm btn-accent" id="mdAddCommentBtn">Add</button>
+      </div>
     </div>`);
 
   // Wire up buttons
   document.getElementById('mdCloseBtn').addEventListener('click', closeModal);
   document.getElementById('mdEditBtn').addEventListener('click', () => onEdit(lead.id));
   document.getElementById('mdDeleteBtn').addEventListener('click', () => onDelete(lead.id));
+  document.getElementById('mdDuplicateBtn').addEventListener('click', () => onDuplicate(lead.id));
   document.querySelectorAll('.stage-pill').forEach(btn => {
     btn.addEventListener('click', () => onStageChange(lead.id, btn.dataset.stage));
+  });
+  document.getElementById('mdAddCommentBtn').addEventListener('click', () => {
+    const input = document.getElementById('mdCommentInput');
+    const comment = input.value.trim();
+    if (!comment) return;
+    const touchBox = document.getElementById('mdTouchCheckbox');
+    const touch_number = touchBox && touchBox.checked ? touchCount + 1 : null;
+    onAddComment(lead.id, { comment, touch_number });
   });
 }
 
@@ -116,6 +192,7 @@ export function renderForm(lead = {}, editingId, { onSave }) {
         <div class="form-row"><label>Proposal date</label><input id="f_proposalDate" type="date" value="${lead.proposalDate || ''}"></div>
         <div class="form-row"><label>Follow-up date</label><input id="f_followupDate" type="date" value="${lead.followupDate || ''}"></div>
         <div class="form-row"><label>Follow-up note</label><input id="f_followupNote" value="${lead.followupNote || ''}" placeholder="e.g. check in on budget approval"></div>
+        <div class="form-row"><label>Follow-up cadence (touch points)</label><input id="f_cadenceTotal" type="number" value="${lead.cadenceTotal || ''}" placeholder="e.g. 8"></div>
       </div>
       <div class="form-row"><label>Notes</label><textarea id="f_notes">${lead.notes || ''}</textarea></div>
     </div>
@@ -142,6 +219,7 @@ export function renderForm(lead = {}, editingId, { onSave }) {
       proposalDate: g('f_proposalDate'),
       followupDate: g('f_followupDate'),
       followupNote: g('f_followupNote'),
+      cadenceTotal: g('f_cadenceTotal'),
       notes:       g('f_notes'),
     });
   });

@@ -1,18 +1,42 @@
 import { supabase } from './supabase.js';
 import { signInWithGoogle, signOut, isAllowedUser, onAuthChange } from './auth.js';
 import { fetchLeads, saveLead, updateStage, deleteLead, subscribeToLeads } from './controllers/leads.js';
+import { fetchProjects, saveProject, updateProjectStage, deleteProject, subscribeToProjects } from './controllers/projects.js';
+import {
+  fetchStageDates, saveStageDates, stageDatesForProject, subscribeToStageDates,
+  fetchActivity, addActivity, logStageChange, activityForProject, subscribeToActivity,
+} from './controllers/projectTracking.js';
+import {
+  fetchActivity as fetchLeadActivity,
+  addActivity as addLeadActivity,
+  logStageChange as logLeadStageChange,
+  activityForLead,
+  subscribeToActivity as subscribeToLeadActivity,
+} from './controllers/leadActivity.js';
 import { renderKPIs } from './views/kpi.js';
 import { renderPipeline } from './views/pipeline.js';
 import { renderList } from './views/list.js';
 import { renderFollowups, updateFollowupBadge } from './views/followups.js';
 import { renderDisc } from './views/disc.js';
 import { renderDetail, renderForm, closeModal } from './views/modal.js';
+import { renderProjects, renderProjectDetail, renderProjectForm } from './views/projects.js';
+import { renderDashboard } from './views/dashboard.js';
+import { renderProjectsDashboard } from './views/projectsDashboard.js';
 
 // ---------- state ----------
-let leads       = [];
+let leads             = [];
+let projects          = [];
+let projectStageDates = [];
+let projectActivity   = [];
+let leadActivity      = [];
 let currentView = 'pipeline';
 let editingId   = null;
-let realtimeChannel = null;
+let editingProjectId = null;
+let realtimeLeads         = null;
+let realtimeProjects      = null;
+let realtimeStageDates    = null;
+let realtimeActivity      = null;
+let realtimeLeadActivity  = null;
 
 // ---------- helpers ----------
 function getFiltered() {
@@ -25,32 +49,57 @@ function getFiltered() {
   );
 }
 
+const ALL_VIEWS = ['pipeline', 'list', 'disc', 'followups', 'projects', 'leadDashboard', 'projectsDashboard'];
+
 // ---------- render ----------
 function render() {
   renderKPIs(leads);
   updateFollowupBadge(leads);
-  if (currentView === 'pipeline')  renderPipeline(leads, getFiltered());
-  if (currentView === 'list')      renderList(getFiltered());
-  if (currentView === 'disc')      renderDisc();
-  if (currentView === 'followups') renderFollowups(leads);
+  if (currentView === 'pipeline')          renderPipeline(leads, getFiltered());
+  if (currentView === 'list')              renderList(getFiltered());
+  if (currentView === 'disc')              renderDisc();
+  if (currentView === 'followups')         renderFollowups(leads);
+  if (currentView === 'projects')          renderProjects(projects, leads);
+  if (currentView === 'leadDashboard')     renderDashboard(leads, projects);
+  if (currentView === 'projectsDashboard') renderProjectsDashboard(projects, projectActivity, projectStageDates);
 }
 
 async function refresh() {
-  leads = await fetchLeads();
+  // Stage-tracking tables are a newer, optional migration — don't let a not-yet-migrated
+  // Supabase project take down leads/projects loading if they're missing.
+  const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes] = await Promise.all([
+    fetchLeads(), fetchProjects(),
+    fetchStageDates().catch(() => []),
+    fetchActivity().catch(() => []),
+    fetchLeadActivity().catch(() => []),
+  ]);
+  leads = leadsRes; projects = projectsRes;
+  projectStageDates = stageDatesRes; projectActivity = activityRes;
+  leadActivity = leadActivityRes;
   render();
 }
 
 // ---------- navigation ----------
 function setView(view) {
   currentView = view;
-  const titles = { pipeline: 'Pipeline', list: 'All Leads', disc: 'DISC Guide', followups: 'Follow-ups' };
+  const titles = {
+    pipeline: 'Pipeline', list: 'All Leads', disc: 'DISC Guide', followups: 'Follow-ups',
+    projects: 'B2B Projects', leadDashboard: 'Dashboard Lead Management',
+    projectsDashboard: 'Dashboard B2B Projects',
+  };
   document.getElementById('viewTitle').textContent = titles[view] || view;
-  ['pipeline', 'list', 'disc', 'followups'].forEach(v => {
+  ALL_VIEWS.forEach(v => {
     document.getElementById(`${v}View`).classList.toggle('hidden', v !== view);
   });
   document.querySelectorAll('#sidebarNav .nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
   });
+  // Show/hide Add Lead button — not relevant on projects or either dashboard
+  const addBtn = document.getElementById('addLeadBtn');
+  if (addBtn) addBtn.style.display = ['projects', 'leadDashboard', 'projectsDashboard'].includes(view) ? 'none' : '';
+  // Show Add Project button only on projects view
+  const addProjBtn = document.getElementById('addProjectBtn');
+  if (addProjBtn) addProjBtn.style.display = view === 'projects' ? '' : 'none';
   render();
 }
 
@@ -58,10 +107,12 @@ function setView(view) {
 function openDetail(id) {
   const lead = leads.find(l => l.id === id);
   if (!lead) return;
-  renderDetail(lead, {
+  renderDetail(lead, activityForLead(leadActivity, id), {
     onEdit:        openEdit,
     onDelete:      handleDelete,
     onStageChange: handleStageChange,
+    onAddComment:  handleAddLeadComment,
+    onDuplicate:   handleDuplicateLead,
   });
 }
 
@@ -77,44 +128,134 @@ function openEdit(id) {
 }
 
 async function handleSave(formData) {
-  try {
-    await saveLead(formData, editingId);
-    closeModal();
-    await refresh();
-  } catch (err) {
-    alert('Could not save lead: ' + err.message);
-  }
+  try { await saveLead(formData, editingId); closeModal(); await refresh(); }
+  catch (err) { alert('Could not save lead: ' + err.message); }
 }
 
 async function handleDelete(id) {
   if (!confirm('Delete this lead?')) return;
-  try {
-    await deleteLead(id);
-    closeModal();
-    await refresh();
-  } catch (err) {
-    alert('Could not delete lead: ' + err.message);
-  }
+  try { await deleteLead(id); closeModal(); await refresh(); }
+  catch (err) { alert('Could not delete lead: ' + err.message); }
 }
 
 async function handleStageChange(id, stage) {
   try {
     await updateStage(id, stage);
+    await logLeadStageChange(id, stage);
     await refresh();
     openDetail(id);
-  } catch (err) {
-    alert('Could not update stage: ' + err.message);
   }
+  catch (err) { alert('Could not update stage: ' + err.message); }
+}
+
+async function handleAddLeadComment(id, { comment, touch_number }) {
+  try { await addLeadActivity(id, { comment, touch_number }); await refresh(); openDetail(id); }
+  catch (err) { alert('Could not add comment: ' + err.message); }
+}
+
+async function handleDuplicateLead(id) {
+  const src = leads.find(l => l.id === id);
+  if (!src) return;
+  try {
+    const newId = await saveLead({
+      company: src.company, contact: src.contact, title: src.title,
+      phone: src.phone, email: src.email, segment: src.segment, disc: src.disc,
+      stage: 'Prospect',
+      est: '', units: '', proposalDate: '', followupDate: '', followupNote: '',
+      notes: '', collected: '', cadenceTotal: '',
+    }, null);
+    const label = src.stage + (src.est ? ` ($${Number(src.est).toLocaleString()})` : '') + (src.lastActivity ? ` on ${src.lastActivity}` : '');
+    await addLeadActivity(newId, { comment: `New opportunity — linked to previous ${label} lead "${src.company}".` });
+    await addLeadActivity(id, { comment: 'Repeat business — new opportunity opened for this contact.' });
+    await refresh();
+    openDetail(newId);
+  } catch (err) { alert('Could not create new opportunity: ' + err.message); }
+}
+
+// ---------- project actions ----------
+function openProjectDetail(id) {
+  const project = projects.find(p => p.id === id);
+  if (!project) return;
+  renderProjectDetail(
+    project, leads,
+    stageDatesForProject(projectStageDates, id),
+    activityForProject(projectActivity, id),
+    {
+      onEdit:         openProjectEdit,
+      onDelete:       handleProjectDelete,
+      onStageChange:  handleProjectStageChange,
+      onSaveTimeline: handleSaveTimeline,
+      onAddComment:   handleAddComment,
+    },
+  );
+}
+
+function openProjectFromLead(leadId) {
+  const lead = leads.find(l => l.id === leadId);
+  if (!lead) return;
+  editingProjectId = null;
+  renderProjectForm({
+    company: lead.company, contact: lead.contact, lead_id: lead.id, est_value: lead.est,
+  }, null, leads, { onSave: handleProjectSave });
+}
+
+function openProjectAdd() {
+  editingProjectId = null;
+  renderProjectForm({}, null, leads, { onSave: handleProjectSave });
+}
+
+function openProjectEdit(id) {
+  editingProjectId = id;
+  const project = projects.find(p => p.id === id) || {};
+  renderProjectForm(project, id, leads, { onSave: handleProjectSave });
+}
+
+async function handleProjectSave(formData) {
+  try { await saveProject(formData, editingProjectId); closeModal(); await refresh(); }
+  catch (err) { alert('Could not save project: ' + err.message); }
+}
+
+async function handleProjectDelete(id) {
+  if (!confirm('Delete this project?')) return;
+  try { await deleteProject(id); closeModal(); await refresh(); }
+  catch (err) { alert('Could not delete project: ' + err.message); }
+}
+
+async function handleProjectStageChange(id, stage) {
+  try {
+    await updateProjectStage(id, stage);
+    await logStageChange(id, stage);
+    await refresh();
+    openProjectDetail(id);
+  }
+  catch (err) { alert('Could not update project stage: ' + err.message); }
+}
+
+async function handleSaveTimeline(id, rows) {
+  try { await saveStageDates(id, rows); await refresh(); openProjectDetail(id); }
+  catch (err) { alert('Could not save stage timeline: ' + err.message); }
+}
+
+async function handleAddComment(id, { stage, comment }) {
+  try { await addActivity(id, { stage, comment }); await refresh(); openProjectDetail(id); }
+  catch (err) { alert('Could not add comment: ' + err.message); }
 }
 
 // ---------- realtime ----------
 function subscribeRealtime() {
-  if (realtimeChannel) return;
-  realtimeChannel = subscribeToLeads(supabase, refresh);
+  if (!realtimeLeads)      realtimeLeads      = subscribeToLeads(supabase, refresh);
+  if (!realtimeProjects)   realtimeProjects   = subscribeToProjects(refresh);
+  if (!realtimeStageDates) realtimeStageDates = subscribeToStageDates(refresh);
+  if (!realtimeActivity)   realtimeActivity   = subscribeToActivity(refresh);
+  if (!realtimeLeadActivity) realtimeLeadActivity = subscribeToLeadActivity(refresh);
 }
 
 function unsubscribeRealtime() {
-  if (realtimeChannel) { supabase.removeChannel(realtimeChannel); realtimeChannel = null; }
+  if (realtimeLeads)      { supabase.removeChannel(realtimeLeads);      realtimeLeads      = null; }
+  if (realtimeProjects)   { supabase.removeChannel(realtimeProjects);   realtimeProjects   = null; }
+  if (realtimeStageDates) { supabase.removeChannel(realtimeStageDates); realtimeStageDates = null; }
+  if (realtimeActivity)   { supabase.removeChannel(realtimeActivity);   realtimeActivity   = null; }
+  if (realtimeLeadActivity) { supabase.removeChannel(realtimeLeadActivity); realtimeLeadActivity = null; }
 }
 
 // ---------- auth ----------
@@ -135,33 +276,32 @@ function showLogin(message = '') {
 
 // ---------- event wiring ----------
 function wireEvents() {
-  // Auth
   document.getElementById('googleLoginBtn').addEventListener('click', async () => {
     const error = await signInWithGoogle();
     if (error) document.getElementById('loginError').textContent = error.message;
   });
   document.getElementById('logoutBtn').addEventListener('click', signOut);
 
-  // Navigation
   document.querySelectorAll('#sidebarNav .nav-item').forEach(el => {
-    el.addEventListener('click', () => setView(el.dataset.view));
+    el.addEventListener('click', () => { if (el.dataset.view) setView(el.dataset.view); });
   });
 
-  // Add lead
   document.getElementById('addLeadBtn').addEventListener('click', openAdd);
-
-  // Search
+  document.getElementById('addProjectBtn').addEventListener('click', openProjectAdd);
   document.getElementById('searchInput').addEventListener('input', render);
 
-  // Modal backdrop
   document.getElementById('modalOverlay').addEventListener('click', e => {
     if (e.target === document.getElementById('modalOverlay')) closeModal();
   });
 
-  // Lead card / row clicks (delegated — works for dynamically rendered cards)
+  // Delegated clicks for lead cards, project cards, and backlog "Start project"
   document.addEventListener('click', e => {
-    const el = e.target.closest('[data-open-lead]');
-    if (el) openDetail(el.dataset.openLead);
+    const startEl = e.target.closest('[data-start-project]');
+    if (startEl) { openProjectFromLead(startEl.dataset.startProject); return; }
+    const leadEl = e.target.closest('[data-open-lead]');
+    if (leadEl) { openDetail(leadEl.dataset.openLead); return; }
+    const projEl = e.target.closest('[data-open-project]');
+    if (projEl) openProjectDetail(projEl.dataset.openProject);
   });
 }
 
