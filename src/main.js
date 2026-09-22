@@ -301,7 +301,16 @@ function openDtcProductEdit(id) {
 }
 
 async function handleDtcProductSave(d) {
-  try { await saveDtcProduct(d, editingDtcProductId); closeModal(); await refresh(); }
+  try {
+    const wasNew = !editingDtcProductId;
+    const id = await saveDtcProduct(d, editingDtcProductId);
+    if (wasNew) {
+      // Seed the financials tab automatically so it doesn't require a separate manual step.
+      await saveDtcFinancial({ dtc_product_id: id, product_name: d.name, manufacturer: d.manufacturer }, null);
+    }
+    closeModal();
+    await refresh();
+  }
   catch (err) { alert('Could not save product: ' + err.message); }
 }
 
@@ -367,6 +376,9 @@ function showApp(user) {
   document.getElementById('loginShell').classList.add('hidden');
   document.getElementById('appShell').classList.remove('hidden');
   document.getElementById('topUserEmail').textContent = user.email;
+  const isTestEnv = (import.meta.env.VITE_SUPABASE_URL || '').includes('ymzeklhdzpmaakvlxrkx');
+  const banner = document.getElementById('testEnvBanner');
+  if (banner) banner.classList.toggle('hidden', !isTestEnv);
   subscribeRealtime();
   refresh();
 }

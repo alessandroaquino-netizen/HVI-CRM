@@ -1,4 +1,6 @@
 import { MANUFACTURERS } from '../dtc_constants.js';
+import { formatDate } from '../utils.js';
+import { renderListDetail } from './modal.js';
 
 export function renderDtcFinancials(financials, products) {
   const el = document.getElementById('dtcFinancialsView');
@@ -28,23 +30,23 @@ export function renderDtcFinancials(financials, products) {
 
   el.innerHTML = `
     <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:2rem">
-      <div class="kpi-card"><div class="kpi-label">Total invoiced</div><div class="kpi-val">$${grandTotal.toLocaleString()}</div></div>
-      <div class="kpi-card" style="${depositPending>0?'border-color:rgba(240,192,64,.4)':''}">
+      <div class="kpi-card" data-kpi="total"><div class="kpi-label">Total invoiced</div><div class="kpi-val">$${grandTotal.toLocaleString()}</div></div>
+      <div class="kpi-card" data-kpi="depositPending" style="${depositPending>0?'border-color:rgba(240,192,64,.4)':''}">
         <div class="kpi-label">Deposits pending</div>
         <div class="kpi-val" style="color:${depositPending>0?'var(--accent)':'var(--text3)'}">$${depositPending.toLocaleString()}</div>
         <div class="kpi-sub">$${depositPaid.toLocaleString()} paid of $${totalDeposit.toLocaleString()}</div>
       </div>
-      <div class="kpi-card" style="${finalPending>0?'border-color:rgba(224,85,85,.4)':''}">
+      <div class="kpi-card" data-kpi="finalPending" style="${finalPending>0?'border-color:rgba(224,85,85,.4)':''}">
         <div class="kpi-label">Final payments pending</div>
         <div class="kpi-val" style="color:${finalPending>0?'var(--red)':'var(--text3)'}">$${finalPending.toLocaleString()}</div>
         <div class="kpi-sub">$${finalPaid.toLocaleString()} paid of $${totalFinal.toLocaleString()}</div>
       </div>
-      <div class="kpi-card" style="${photogPending>0?'border-color:rgba(91,156,246,.4)':''}">
+      <div class="kpi-card" data-kpi="photogPending" style="${photogPending>0?'border-color:rgba(91,156,246,.4)':''}">
         <div class="kpi-label">Photographer pending</div>
         <div class="kpi-val" style="color:${photogPending>0?'var(--blue)':'var(--text3)'}">$${photogPending.toLocaleString()}</div>
         <div class="kpi-sub">$${photogPaid.toLocaleString()} paid of $${totalPhotog.toLocaleString()}</div>
       </div>
-      <div class="kpi-card"><div class="kpi-label">Total paid to date</div><div class="kpi-val" style="color:var(--green)">$${totalPaid.toLocaleString()}</div><div class="kpi-sub">of $${grandTotal.toLocaleString()} total due</div></div>
+      <div class="kpi-card" data-kpi="paid"><div class="kpi-label">Total paid to date</div><div class="kpi-val" style="color:var(--green)">$${totalPaid.toLocaleString()}</div><div class="kpi-sub">of $${grandTotal.toLocaleString()} total due</div></div>
     </div>
 
     ${Object.entries(byMfr).filter(([,v]) => v.rows.length > 0).map(([mfrId, mfr]) => `
@@ -65,13 +67,13 @@ export function renderDtcFinancials(financials, products) {
               <td style="font-family:var(--mono);font-size:11px">${f.order_number||'—'}</td>
               <td style="font-family:var(--mono);font-size:11px">${f.invoice_number||'—'}</td>
               <td>${f.deposit_amount?'$'+Number(f.deposit_amount).toLocaleString():'—'}</td>
-              <td style="color:${f.deposit_paid_date?'var(--green)':'var(--red)'}">${f.deposit_paid_date||'✗'}</td>
+              <td style="color:${f.deposit_paid_date?'var(--green)':'var(--red)'}">${f.deposit_paid_date?formatDate(f.deposit_paid_date):'✗'}</td>
               <td>${f.final_amount?'$'+Number(f.final_amount).toLocaleString():'—'}</td>
-              <td style="color:${f.final_paid_date||f.paid_in_full?'var(--green)':'var(--red)'}">${f.paid_in_full?'✓ Paid full':(f.final_paid_date||'✗')}</td>
+              <td style="color:${f.final_paid_date||f.paid_in_full?'var(--green)':'var(--red)'}">${f.paid_in_full?'✓ Paid full':(f.final_paid_date?formatDate(f.final_paid_date):'✗')}</td>
               <td>${f.photographer_fee?'$'+Number(f.photographer_fee).toLocaleString():'—'}</td>
-              <td style="color:${f.photographer_paid_date?'var(--green)':'var(--text3)'}">${f.photographer_paid_date||'—'}</td>
+              <td style="color:${f.photographer_paid_date?'var(--green)':'var(--text3)'}">${f.photographer_paid_date?formatDate(f.photographer_paid_date):'—'}</td>
               <td>${f.additional_payment_amount?'$'+Number(f.additional_payment_amount).toLocaleString()+(f.additional_payment_note?' ('+f.additional_payment_note+')':''):'—'}</td>
-              <td style="font-family:var(--mono);font-size:11px;color:${f.expected_next_payment_date&&f.expected_next_payment_date<new Date().toISOString().slice(0,10)?'var(--red)':'var(--text3)'}">${f.expected_next_payment_date||'—'}</td>
+              <td style="font-family:var(--mono);font-size:11px;color:${f.expected_next_payment_date&&f.expected_next_payment_date<new Date().toISOString().slice(0,10)?'var(--red)':'var(--text3)'}">${f.expected_next_payment_date?formatDate(f.expected_next_payment_date):'—'}</td>
               <td style="font-size:11px;color:var(--text3)">${f.notes||'—'}</td>
               <td style="display:flex;gap:4px;white-space:nowrap">
                 <button class="btn btn-sm btn-ghost" data-edit-fin="${f.id}">Edit</button>
@@ -83,6 +85,21 @@ export function renderDtcFinancials(financials, products) {
       </div>`).join('')}
 
     ${financials.length === 0 ? `<div style="text-align:center;color:var(--text3);padding:3rem;font-size:13px">No transactions yet.</div>` : ''}`;
+
+  const finRow = f => ({ id: f.dtc_product_id || null, type: 'dtc', primary: f.product_name || '—', secondary: [f.manufacturer, f.invoice_number].filter(Boolean).join(' · '), value: '' });
+  const drilldowns = {
+    total:          () => renderListDetail('All Transactions', `$${grandTotal.toLocaleString()} total invoiced`, financials.map(finRow)),
+    depositPending: () => renderListDetail('Deposits Pending', `$${depositPending.toLocaleString()} outstanding`, financials.filter(f => f.deposit_amount && !f.deposit_paid_date).map(finRow)),
+    finalPending:   () => renderListDetail('Final Payments Pending', `$${finalPending.toLocaleString()} outstanding`, financials.filter(f => f.final_amount && !f.final_paid_date && !f.paid_in_full).map(finRow)),
+    photogPending:  () => renderListDetail('Photographer Payments Pending', `$${photogPending.toLocaleString()} outstanding`, financials.filter(f => f.photographer_fee && !f.photographer_paid_date).map(finRow)),
+    paid:           () => renderListDetail('Paid to Date', `$${totalPaid.toLocaleString()} paid of $${grandTotal.toLocaleString()}`, financials.filter(f => f.deposit_paid_date || f.final_paid_date || f.paid_in_full || f.photographer_paid_date).map(finRow)),
+  };
+  el.querySelectorAll('[data-kpi]').forEach(card => {
+    const fn = drilldowns[card.dataset.kpi];
+    if (!fn) return;
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', fn);
+  });
 }
 
 export function renderDtcFinancialForm(f = {}, editingId, products, { onSave }) {

@@ -162,6 +162,37 @@ export function calcDropRisk(product) {
   return 'ok';
 }
 
+// Expected date range per sub-phase, walking backward from drop_date using the
+// product type's phases breakdown (weeks). Returns null for types with no phases data
+// (hats/accessories/etc.) or products with no drop_date/product_type.
+export function phaseDatesForProduct(product) {
+  if (!product.drop_date) return null;
+  const type = PRODUCT_TYPES.find(t => t.id === product.product_type);
+  const ph = type?.phases;
+  if (!ph) return null;
+
+  const addDays = (dateStr, days) => {
+    const d = new Date(dateStr);
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const drop = product.drop_date;
+  const shippingStart   = addDays(drop, -ph.shipping * 7);
+  const productionStart = addDays(shippingStart, -ph.production * 7);
+  const samplingStart   = addDays(productionStart, -ph.sampling * 7);
+  const designFinalStart = addDays(samplingStart, -ph.design_final * 7);
+  const designFirstStart = addDays(designFinalStart, -ph.design_first * 7);
+
+  return [
+    { label: 'Design', start: designFirstStart, end: designFinalStart },
+    { label: 'Sampling', start: designFinalStart, end: samplingStart },
+    { label: 'Production', start: samplingStart, end: productionStart },
+    { label: 'Shipping', start: productionStart, end: shippingStart },
+    { label: 'Drop', start: shippingStart, end: drop },
+  ];
+}
+
 export function daysInPhase(product) {
   if (!product.phase_changed_at) return 0;
   return Math.floor((new Date() - new Date(product.phase_changed_at)) / 86400000);

@@ -133,9 +133,11 @@ export async function saveDtcProduct(product, editingId = null) {
   if (editingId) {
     const { error } = await supabase.from('dtc_products').update(row).eq('id', editingId);
     if (error) throw error;
+    return editingId;
   } else {
-    const { error } = await supabase.from('dtc_products').insert(row);
+    const { data, error } = await supabase.from('dtc_products').insert(row).select('id').single();
     if (error) throw error;
+    return data.id;
   }
 }
 

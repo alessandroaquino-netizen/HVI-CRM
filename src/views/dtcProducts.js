@@ -1,4 +1,6 @@
-import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, MANUFACTURERS, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks } from '../dtc_constants.js';
+import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, MANUFACTURERS, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct } from '../dtc_constants.js';
+import { formatDate } from '../utils.js';
+import { renderListDetail } from './modal.js';
 
 function riskBorder(risk) {
   if (risk === 'overdue')  return 'border-color:rgba(224,85,85,.65)';
@@ -37,7 +39,7 @@ function productCard(p) {
     <div class="lead-meta" style="margin-top:5px;flex-wrap:wrap;gap:4px">
       ${categoryBadge(p.category)}
       ${riskTag(risk)}
-      ${p.drop_date ? `<span style="font-size:9px;font-family:var(--mono);color:${weeks!==null&&weeks<4?'var(--red)':'var(--text3)'}">Drop: ${p.drop_date}${weeks!==null?` (${weeks}w)`:''}</span>` : ''}
+      ${p.drop_date ? `<span style="font-size:9px;font-family:var(--mono);color:${weeks!==null&&weeks<4?'var(--red)':'var(--text3)'}">Drop: ${formatDate(p.drop_date)}${weeks!==null?` (${weeks}w)`:''}</span>` : ''}
     </div>
     ${payBadge||preMktBadge ? `<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">${payBadge}${preMktBadge}</div>` : ''}
   </div>`;
@@ -66,13 +68,13 @@ export function renderDtcProducts(products) {
 
   let html = `
     <div class="proj-summary" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.5rem">
-      <div class="kpi-card" style="padding:.9rem 1.1rem"><div class="kpi-label">Total products</div><div class="kpi-val" style="font-size:22px">${products.length}</div></div>
-      <div class="kpi-card" style="padding:.9rem 1.1rem"><div class="kpi-label">Products ordered</div><div class="kpi-val" style="font-size:22px;color:var(--blue)">${ordered}</div><div class="kpi-sub">Sampling & beyond</div></div>
-      <div class="kpi-card" style="padding:.9rem 1.1rem;${overdue?'border-color:rgba(224,85,85,.4)':''}"><div class="kpi-label">Overdue</div><div class="kpi-val" style="font-size:22px;color:${overdue?'var(--red)':'var(--text3)'}">${overdue}</div></div>
-      <div class="kpi-card" style="padding:.9rem 1.1rem;${atRisk?'border-color:rgba(240,192,64,.4)':''}"><div class="kpi-label">At risk</div><div class="kpi-val" style="font-size:22px;color:${atRisk?'var(--accent)':'var(--text3)'}">${atRisk}</div></div>
-      <div class="kpi-card" style="padding:.9rem 1.1rem"><div class="kpi-label">Next drops</div>
+      <div class="kpi-card" data-kpi="total" style="padding:.9rem 1.1rem"><div class="kpi-label">Total products</div><div class="kpi-val" style="font-size:22px">${products.length}</div></div>
+      <div class="kpi-card" data-kpi="ordered" style="padding:.9rem 1.1rem"><div class="kpi-label">Products ordered</div><div class="kpi-val" style="font-size:22px;color:var(--blue)">${ordered}</div><div class="kpi-sub">Sampling & beyond</div></div>
+      <div class="kpi-card" data-kpi="overdue" style="padding:.9rem 1.1rem;${overdue?'border-color:rgba(224,85,85,.4)':''}"><div class="kpi-label">Overdue</div><div class="kpi-val" style="font-size:22px;color:${overdue?'var(--red)':'var(--text3)'}">${overdue}</div></div>
+      <div class="kpi-card" data-kpi="atRisk" style="padding:.9rem 1.1rem;${atRisk?'border-color:rgba(240,192,64,.4)':''}"><div class="kpi-label">At risk</div><div class="kpi-val" style="font-size:22px;color:${atRisk?'var(--accent)':'var(--text3)'}">${atRisk}</div></div>
+      <div class="kpi-card" data-kpi="nextDrops" style="padding:.9rem 1.1rem"><div class="kpi-label">Next drops</div>
         <div style="margin-top:4px;display:flex;flex-direction:column;gap:3px">
-          ${nextDrops.length ? nextDrops.map(p=>`<div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--text2)">${p.name}</span><span style="font-family:var(--mono);color:var(--accent)">${p.drop_date}</span></div>`).join('') : '<span style="font-size:11px;color:var(--text3)">None scheduled</span>'}
+          ${nextDrops.length ? nextDrops.map(p=>`<div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--text2)">${p.name}</span><span style="font-family:var(--mono);color:var(--accent)">${formatDate(p.drop_date)}</span></div>`).join('') : '<span style="font-size:11px;color:var(--text3)">None scheduled</span>'}
         </div>
       </div>
     </div>
@@ -108,6 +110,24 @@ export function renderDtcProducts(products) {
   });
   const clr = el.querySelector('#clearDtcFilters');
   if (clr) clr.addEventListener('click', () => { activeFilters = { type:'', category:'', manufacturer:'' }; renderDtcProducts(products); });
+
+  const dtcRow = p => ({ id: p.id, type: 'dtc', primary: p.name, secondary: [p.phase, p.manufacturer].filter(Boolean).join(' · '), value: p.drop_date ? formatDate(p.drop_date) : '' });
+  const overdueList = products.filter(p => calcDropRisk(p) === 'overdue');
+  const atRiskList  = products.filter(p => calcDropRisk(p) === 'at-risk');
+  const orderedList = products.filter(p => ['sampling','production','warehouse'].includes(p.phase));
+  const drilldowns = {
+    total:     () => renderListDetail('All Products', `${products.length} total`, products.map(dtcRow)),
+    ordered:   () => renderListDetail('Products Ordered', 'Sampling & beyond', orderedList.map(dtcRow)),
+    overdue:   () => renderListDetail('Overdue Products', 'Past achievable lead time for the drop date', overdueList.map(dtcRow)),
+    atRisk:    () => renderListDetail('At-Risk Products', 'Tight on lead time', atRiskList.map(dtcRow)),
+    nextDrops: () => renderListDetail('Upcoming Drops', null, products.filter(p => p.drop_date && p.drop_date >= new Date().toISOString().slice(0,10)).sort((a,b) => a.drop_date.localeCompare(b.drop_date)).map(dtcRow)),
+  };
+  el.querySelectorAll('[data-kpi]').forEach(card => {
+    const fn = drilldowns[card.dataset.kpi];
+    if (!fn) return;
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', fn);
+  });
 }
 
 // ─── Detail modal ─────────────────────────────────────────────────────────
@@ -125,10 +145,23 @@ export function renderDtcProductDetail(p, { onEdit, onDelete, onPhaseChange, onS
     `<button class="stage-pill${p.phase===ph.id?' active':''}" data-dtc-phase="${ph.id}" style="font-size:10px;padding:4px 9px">${ph.label}</button>`
   ).join('');
 
+  const timeline = phaseDatesForProduct(p);
+  const timelineSection = timeline ? `
+    <div class="section-divider" style="margin-top:1rem">Phase Timeline</div>
+    <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+      ${timeline.map(t => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg3);border-radius:var(--radius)">
+          <span style="font-size:12px;color:var(--text2)">${t.label}</span>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${formatDate(t.start)} → ${formatDate(t.end)}</span>
+        </div>`).join('')}
+    </div>` : (p.drop_date ? `
+    <div class="section-divider" style="margin-top:1rem">Phase Timeline</div>
+    <div style="margin-top:10px;font-size:12px;color:var(--text3)">No phase breakdown available for this product type yet.</div>` : '');
+
   const samplingSection = p.phase === 'sampling' || ['production','warehouse'].includes(p.phase) ? `
     <div class="section-divider" style="margin-top:1rem">Sampling Details</div>
     <div class="detail-grid" style="margin-top:10px">
-      <div class="detail-field"><div class="lbl">Manufacturer order date</div><div class="val">${p.manufacturer_order_date||'—'}</div></div>
+      <div class="detail-field"><div class="lbl">Manufacturer order date</div><div class="val">${p.manufacturer_order_date?formatDate(p.manufacturer_order_date):'—'}</div></div>
       <div class="detail-field"><div class="lbl">Samples sent to photographer</div><div class="val" style="color:${p.photographer_samples_sent?'var(--green)':'var(--text3)'}">${p.photographer_samples_sent?'✓ Yes':'✗ Not yet'}</div></div>
       <div class="detail-field"><div class="lbl">Photos approved</div><div class="val" style="color:${p.photographer_photos_approved?'var(--green)':'var(--text3)'}">${p.photographer_photos_approved?'✓ Approved':'✗ Pending'}</div></div>
     </div>` : '';
@@ -146,7 +179,7 @@ export function renderDtcProductDetail(p, { onEdit, onDelete, onPhaseChange, onS
     <div class="modal-header">
       <h3>${p.name}</h3>
       <div style="display:flex;gap:6px">
-        ${!p.premarketing_started_at ? `<button class="btn btn-sm" id="dtcPreMktBtn" style="background:rgba(155,127,232,.2);color:var(--purple);border-color:rgba(155,127,232,.4)">▶ Start Pre-marketing</button>` : `<span style="font-size:11px;color:var(--purple);display:flex;align-items:center">Pre-mkt: ${p.premarketing_started_at}</span>`}
+        ${!p.premarketing_started_at ? `<button class="btn btn-sm" id="dtcPreMktBtn" style="background:rgba(155,127,232,.2);color:var(--purple);border-color:rgba(155,127,232,.4)">▶ Start Pre-marketing</button>` : `<span style="font-size:11px;color:var(--purple);display:flex;align-items:center">Pre-mkt: ${formatDate(p.premarketing_started_at)}</span>`}
         <button class="btn btn-sm" id="dtcEditBtn">Edit</button>
         <button class="btn btn-sm btn-danger" id="dtcDeleteBtn">Delete</button>
         <button class="btn btn-sm btn-ghost" id="dtcCloseBtn">✕</button>
@@ -159,7 +192,7 @@ export function renderDtcProductDetail(p, { onEdit, onDelete, onPhaseChange, onS
           <div style="font-size:13px;color:var(--text2)">${mfr?mfr.label:(p.manufacturer||'—')}</div>
         </div>
         <div style="text-align:right">
-          ${p.drop_date?`<div style="font-size:12px;font-family:var(--mono);color:var(--accent)">Drop: ${p.drop_date}</div>
+          ${p.drop_date?`<div style="font-size:12px;font-family:var(--mono);color:var(--accent)">Drop: ${formatDate(p.drop_date)}</div>
           <div style="font-size:11px;color:${riskColor};margin-top:2px">${weeks!==null?weeks+' weeks away':''} · ${risk==='unknown'?'No lead time ('+( p.category||'?')+'  )':risk}</div>
           <div style="font-size:10px;color:var(--text3);margin-top:2px">Lead time: ${leadWeeks?leadWeeks+' weeks total':'TBD'}</div>`
           :'<div style="font-size:12px;color:var(--text3)">No drop date</div>'}
@@ -174,10 +207,11 @@ export function renderDtcProductDetail(p, { onEdit, onDelete, onPhaseChange, onS
         <div class="detail-field"><div class="lbl">Units</div><div class="val">${p.units||'—'}</div></div>
         <div class="detail-field"><div class="lbl">50% Deposit</div><div class="val" style="color:${p.deposit_50_paid?'var(--green)':'var(--red)'}">${p.deposit_50_paid?'✓ Paid':'✗ Pending'}</div></div>
         <div class="detail-field"><div class="lbl">Final 50%</div><div class="val" style="color:${p.final_50_paid?'var(--green)':'var(--red)'}">${p.final_50_paid?'✓ Paid':'✗ Pending'}</div></div>
-        <div class="detail-field"><div class="lbl">Last activity</div><div class="val">${p.last_activity||'—'}</div></div>
+        <div class="detail-field"><div class="lbl">Last activity</div><div class="val">${p.last_activity?formatDate(p.last_activity):'—'}</div></div>
         ${p.figma_link?`<div class="detail-field" style="grid-column:span 2"><div class="lbl">Figma</div><div class="val"><a href="${p.figma_link}" target="_blank" style="color:var(--blue)">${p.figma_link}</a></div></div>`:''}
         ${p.tech_pack_link?`<div class="detail-field" style="grid-column:span 2"><div class="lbl">Tech Pack</div><div class="val"><a href="${p.tech_pack_link}" target="_blank" style="color:var(--blue)">${p.tech_pack_link}</a></div></div>`:''}
       </div>
+      ${timelineSection}
       ${samplingSection}
       ${warehouseSection}
       ${p.notes?`<div style="margin-top:1rem"><div class="section-divider">Notes</div><div class="notes-display" style="margin-top:8px">${p.notes}</div></div>`:''}
