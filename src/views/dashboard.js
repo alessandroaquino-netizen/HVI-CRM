@@ -1,4 +1,5 @@
 import { renderListDetail } from './modal.js';
+import { formatDate } from '../utils.js';
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function iso(d) { return d.toISOString().slice(0, 10); }
@@ -264,7 +265,7 @@ export function renderDashboard(leads, projects) {
       </div>
       ${fuOverdue.length ? `<div class="kpi-scroll-list">${[...fuOverdue]
           .sort((a, b) => a.followupDate.localeCompare(b.followupDate))
-          .map(l => `<div class="kpi-scroll-row" data-open-lead="${l.id}"><span>${l.company || l.contact}</span><span style="color:var(--red);font-family:var(--mono);font-size:11px">${l.followupDate}</span></div>`)
+          .map(l => `<div class="kpi-scroll-row" data-open-lead="${l.id}"><span>${l.company || l.contact}</span><span style="color:var(--red);font-family:var(--mono);font-size:11px">${formatDate(l.followupDate)}</span></div>`)
           .join('')}</div>` : ''}
     </div>
   </div>`;
@@ -292,7 +293,7 @@ export function renderDashboard(leads, projects) {
     proposalsW:     () => renderListDetail('Proposals Sent This Week', wPeriod.label, proposalsW.map(l => leadRow(l, x => money2(x.est)))),
     active:         () => renderListDetail('Active Deals', wPeriod.label, active.map(l => leadRow(l, x => x.est ? money2(x.est) : ''))),
     stalled:        () => renderListDetail('Stalled Deals', 'No activity in 14+ days · ' + wPeriod.label, stalled.map(l => leadRow(l, x => Math.floor((new Date(wRef) - new Date(x.lastActivity)) / 86400000) + 'd stale'))),
-    fuOverdue:      () => renderListDetail('Follow-ups Overdue', wPeriod.label, fuOverdue.map(l => leadRow(l, x => x.followupDate))),
+    fuOverdue:      () => renderListDetail('Follow-ups Overdue', wPeriod.label, fuOverdue.map(l => leadRow(l, x => formatDate(x.followupDate)))),
   };
   el.querySelectorAll('[data-kpi]').forEach(card => {
     const fn = drilldowns[card.dataset.kpi];

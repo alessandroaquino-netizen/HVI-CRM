@@ -257,3 +257,38 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); font
 .activity-comment em { color: var(--text3); font-style: normal; }
 #pdCommentInput, #mdCommentInput { flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-family: var(--font); font-size: 12px; padding: 7px 10px; outline: none; }
 #pdCommentInput:focus, #mdCommentInput:focus { border-color: var(--accent); }
+
+/* Test environment banner */
+.test-env-banner { grid-column: 1 / -1; background: rgba(224,85,85,.15); border-bottom: 1px solid rgba(224,85,85,.4); color: var(--red); font-size: 12px; font-weight: 500; text-align: center; padding: 6px 12px; }
+
+/* DTC calendar — standard month grid */
+.dtc-cal-months { display: flex; flex-direction: column; gap: 16px; }
+.dtc-cal-month { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.dtc-cal-month-current { border-color: var(--accent); }
+.dtc-cal-month-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 14px; font-weight: 500; color: var(--text); }
+.dtc-cal-month-current .dtc-cal-month-header { color: var(--accent); }
+.dtc-cal-today-badge { font-size: 9px; font-family: var(--mono); background: var(--accent); color: #111; padding: 1px 6px; border-radius: 3px; }
+.dtc-cal-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--border); }
+.dtc-cal-weekdays div { font-size: 9px; font-family: var(--mono); color: var(--text3); text-transform: uppercase; letter-spacing: .06em; text-align: center; padding: 6px 0; }
+.dtc-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.dtc-cal-cell { min-height: 68px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 4px; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.dtc-cal-cell:nth-child(7n) { border-right: none; }
+.dtc-cal-cell-empty { background: var(--bg); }
+.dtc-cal-cell-today { background: rgba(240,192,64,.08); }
+.dtc-cal-daynum { font-size: 10px; font-family: var(--mono); color: var(--text3); }
+.dtc-cal-cell-today .dtc-cal-daynum { color: var(--accent); font-weight: 500; }
+.dtc-cal-keydate { font-size: 8px; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dtc-cal-drop { font-size: 9px; color: #111; font-weight: 500; padding: 1px 4px; border-radius: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.dtc-horizon-row { padding: 3px 0; border-radius: 4px; transition: background .15s; }
+.dtc-horizon-row:hover { background: var(--bg3); }
+.dtc-timeline-row input[type="date"] { background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: var(--font); font-size: 11px; padding: 4px 6px; outline: none; }
+.dtc-timeline-row input[type="date"]:focus { border-color: var(--accent); }
+
+/* DTC size/SKU variant rows */
+.dtc-variant-header, .dtc-variant-row { display: grid; grid-template-columns: 1.3fr 1.3fr 0.8fr 0.9fr 0.8fr 0.8fr 0.8fr 24px; gap: 6px; align-items: center; }
+.dtc-variant-header { padding: 0 2px 6px; }
+.dtc-variant-header span { font-size: 9px; font-family: var(--mono); color: var(--text3); text-transform: uppercase; letter-spacing: .04em; }
+.dtc-variant-row { padding: 3px 0; }
+.dtc-variant-row input { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: var(--font); font-size: 11px; padding: 4px 6px; outline: none; width: 100%; min-width: 0; }
+.dtc-variant-row input:focus { border-color: var(--accent); }
+.dtc-variant-row [data-remove-variant-row] { padding: 2px 6px; font-size: 11px; }

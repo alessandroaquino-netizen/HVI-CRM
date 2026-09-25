@@ -1,11 +1,12 @@
 import { followupStatus } from '../controllers/leads.js';
+import { formatDate } from '../utils.js';
 
 function rowHtml(l, status) {
   const tag = status === 'overdue'
-    ? `<span class="tag-overdue">Overdue · ${l.followupDate}</span>`
+    ? `<span class="tag-overdue">Overdue · ${formatDate(l.followupDate)}</span>`
     : status === 'today'
     ? `<span class="tag-today">Today</span>`
-    : `<span class="tag-upcoming">${l.followupDate}</span>`;
+    : `<span class="tag-upcoming">${formatDate(l.followupDate)}</span>`;
 
   return `<div class="followup-row" data-open-lead="${l.id}">
     <div>

@@ -1,5 +1,7 @@
 import { PROJECT_STAGES, PHASES, daysAtStage, stageStatus } from '../controllers/projects.js';
 import { PROJECT_STATUSES, TEAM_MEMBERS } from '../constants.js';
+import { formatDate } from '../utils.js';
+import { renderListDetail } from './modal.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -86,27 +88,27 @@ export function renderProjects(projects, leads) {
 
   let html = `
     <div class="proj-summary">
-      <div class="kpi-card" style="padding:.9rem 1.1rem">
+      <div class="kpi-card" data-kpi="active" style="padding:.9rem 1.1rem">
         <div class="kpi-label">Active projects</div>
         <div class="kpi-val" style="font-size:22px">${active.length}</div>
       </div>
-      <div class="kpi-card" style="padding:.9rem 1.1rem">
+      <div class="kpi-card" data-kpi="value" style="padding:.9rem 1.1rem">
         <div class="kpi-label">Total est. value</div>
         <div class="kpi-val" style="font-size:22px">$${totalEst.toLocaleString()}</div>
       </div>
-      <div class="kpi-card" style="padding:.9rem 1.1rem">
+      <div class="kpi-card" data-kpi="value" style="padding:.9rem 1.1rem">
         <div class="kpi-label">Total collected</div>
         <div class="kpi-val" style="font-size:22px;color:var(--green)">$${totalCol.toLocaleString()}</div>
       </div>
-      <div class="kpi-card" style="padding:.9rem 1.1rem;${overdue.length ? 'border-color:rgba(224,85,85,.4)' : ''}">
+      <div class="kpi-card" data-kpi="overdue" style="padding:.9rem 1.1rem;${overdue.length ? 'border-color:rgba(224,85,85,.4)' : ''}">
         <div class="kpi-label">Overdue stages</div>
         <div class="kpi-val" style="font-size:22px;color:${overdue.length ? 'var(--red)' : 'var(--text3)'}">${overdue.length}</div>
       </div>
-      <div class="kpi-card" style="padding:.9rem 1.1rem;${atRisk.length ? 'border-color:rgba(240,192,64,.4)' : ''}">
+      <div class="kpi-card" data-kpi="atRisk" style="padding:.9rem 1.1rem;${atRisk.length ? 'border-color:rgba(240,192,64,.4)' : ''}">
         <div class="kpi-label">At risk</div>
         <div class="kpi-val" style="font-size:22px;color:${atRisk.length ? 'var(--accent)' : 'var(--text3)'}">${atRisk.length}</div>
       </div>
-      <div class="kpi-card" style="padding:.9rem 1.1rem">
+      <div class="kpi-card" data-kpi="backlog" style="padding:.9rem 1.1rem">
         <div class="kpi-label">Project backlog</div>
         <div class="kpi-val" style="font-size:22px">${backlog.length}</div>
       </div>
@@ -145,6 +147,22 @@ export function renderProjects(projects, leads) {
   html += '</div>';
 
   container.innerHTML = html;
+
+  const projRow = p => ({ id: p.id, type: 'project', primary: p.company, secondary: p.contact || '', value: p.est_value ? '$' + Number(p.est_value).toLocaleString() : '' });
+  const leadRow = l => ({ id: l.id, type: 'lead', primary: l.company || l.contact, secondary: l.contact || '', value: l.est ? '$' + parseFloat(l.est).toLocaleString() : '' });
+  const drilldowns = {
+    active:  () => renderListDetail('Active Projects', `${projects.length} total`, active.map(projRow)),
+    value:   () => renderListDetail('All Projects', `$${totalEst.toLocaleString()} est. / $${totalCol.toLocaleString()} collected`, projects.map(projRow)),
+    overdue: () => renderListDetail('Overdue Stages', 'Past SLA for current stage', overdue.map(projRow)),
+    atRisk:  () => renderListDetail('At-Risk Stages', 'Approaching SLA for current stage', atRisk.map(projRow)),
+    backlog: () => renderListDetail('Project Backlog', 'Closed Won leads without a project started yet', backlog.map(leadRow)),
+  };
+  container.querySelectorAll('[data-kpi]').forEach(card => {
+    const fn = drilldowns[card.dataset.kpi];
+    if (!fn) return;
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', fn);
+  });
 }
 
 // ─── Project detail modal ─────────────────────────────────────────────────
@@ -195,7 +213,7 @@ export function renderProjectDetail(project, leads, stageDates, activity, { onEd
         <div class="detail-field"><div class="lbl">20% Deposit</div><div class="val" style="color:${project.deposit_20_paid ? 'var(--green)' : 'var(--red)'}">${project.deposit_20_paid ? '✓ Paid' : '✗ Pending'}</div></div>
         <div class="detail-field"><div class="lbl">50% Midpoint</div><div class="val" style="color:${project.payment_50_paid ? 'var(--green)' : 'var(--red)'}">${project.payment_50_paid ? '✓ Paid' : '✗ Pending'}</div></div>
         <div class="detail-field"><div class="lbl">Final Payment</div><div class="val" style="color:${project.final_paid ? 'var(--green)' : 'var(--red)'}">${project.final_paid ? '✓ Paid' : '✗ Pending'}</div></div>
-        <div class="detail-field"><div class="lbl">Last activity</div><div class="val">${project.last_activity || '—'}</div></div>
+        <div class="detail-field"><div class="lbl">Last activity</div><div class="val">${project.last_activity ? formatDate(project.last_activity) : '—'}</div></div>
       </div>
       ${project.notes ? `<div style="margin-top:1rem"><div class="section-divider">Notes</div><div class="notes-display" style="margin-top:8px">${project.notes}</div></div>` : ''}
 

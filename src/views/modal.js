@@ -1,5 +1,6 @@
 import { STAGES, SEGMENTS, DISC } from '../constants.js';
 import { followupStatus } from '../controllers/leads.js';
+import { formatDate } from '../utils.js';
 
 const overlay = () => document.getElementById('modalOverlay');
 const box     = () => document.getElementById('modalBox');
@@ -14,13 +15,19 @@ export function openModal(html) {
 }
 
 // ---------- generic drilldown list ----------
-// rows: [{ id, type: 'lead'|'project', primary, secondary, value }]
-// Reuses the delegated data-open-lead / data-open-project click handler in main.js —
-// clicking a row just opens the real record, no extra wiring needed here.
+// rows: [{ id, type: 'lead'|'project'|'dtc', primary, secondary, value }]
+// Reuses the delegated data-open-lead / data-open-project / data-open-dtc click handler in
+// main.js — clicking a row just opens the real record, no extra wiring needed here.
+
+function drilldownAttr(r) {
+  if (r.type === 'project') return `data-open-project="${r.id}"`;
+  if (r.type === 'dtc')     return `data-open-dtc="${r.id}"`;
+  return `data-open-lead="${r.id}"`;
+}
 
 export function renderListDetail(title, subtitle, rows) {
   const rowHtml = r => `
-    <div class="drilldown-row" ${r.type === 'project' ? `data-open-project="${r.id}"` : `data-open-lead="${r.id}"`}>
+    <div class="drilldown-row" ${drilldownAttr(r)}>
       <div>
         <div class="drilldown-primary">${r.primary || '—'}</div>
         ${r.secondary ? `<div class="drilldown-secondary">${r.secondary}</div>` : ''}
@@ -83,7 +90,7 @@ export function renderDetail(lead, activity, { onEdit, onDelete, onStageChange, 
   const cadenceBlock = cadenceTotal ? `
     <div class="section-divider" style="margin-top:1.5rem">Follow-up cadence</div>
     <div style="font-size:12px;color:var(--text2);margin-top:8px">
-      Touch ${touchCount} of ${cadenceTotal}${nextSuggested ? ` · next suggested ${nextSuggested}` : ''}
+      Touch ${touchCount} of ${cadenceTotal}${nextSuggested ? ` · next suggested ${formatDate(nextSuggested)}` : ''}
     </div>` : '';
 
   openModal(`
@@ -113,9 +120,9 @@ export function renderDetail(lead, activity, { onEdit, onDelete, onStageChange, 
         <div class="detail-field"><div class="lbl">DISC</div><div class="val">${lead.disc ? `<span class="badge badge-${lead.disc}">${lead.disc}</span>` : '—'}</div></div>
         <div class="detail-field"><div class="lbl">Est. value</div><div class="val">${lead.est ? '$' + parseFloat(lead.est).toLocaleString() : '—'}</div></div>
         <div class="detail-field"><div class="lbl">Est. units</div><div class="val">${lead.units || '—'}</div></div>
-        <div class="detail-field"><div class="lbl">Last activity</div><div class="val">${lead.lastActivity || '—'}</div></div>
-        <div class="detail-field"><div class="lbl">Proposal date</div><div class="val">${lead.proposalDate || '—'}</div></div>
-        <div class="detail-field"><div class="lbl">Follow-up date</div><div class="val" style="color:${fuColor}">${lead.followupDate || '—'}</div></div>
+        <div class="detail-field"><div class="lbl">Last activity</div><div class="val">${lead.lastActivity ? formatDate(lead.lastActivity) : '—'}</div></div>
+        <div class="detail-field"><div class="lbl">Proposal date</div><div class="val">${lead.proposalDate ? formatDate(lead.proposalDate) : '—'}</div></div>
+        <div class="detail-field"><div class="lbl">Follow-up date</div><div class="val" style="color:${fuColor}">${lead.followupDate ? formatDate(lead.followupDate) : '—'}</div></div>
         <div class="detail-field"><div class="lbl">Follow-up note</div><div class="val">${lead.followupNote || '—'}</div></div>
       </div>
       ${lead.notes ? `<div style="margin-top:1rem"><div class="section-divider">Notes</div><div class="notes-display" style="margin-top:8px">${lead.notes}</div></div>` : ''}
