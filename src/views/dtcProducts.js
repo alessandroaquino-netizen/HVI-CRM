@@ -130,8 +130,23 @@ export function renderDtcProducts(products) {
   });
 }
 
+const EDITABLE_PHASE_KEYS = ['design', 'sampling', 'production', 'shipping'];
+
+function variantRowHtml(v = {}) {
+  return `<div class="dtc-variant-row" data-variant-row>
+    <input type="text" class="dtc-variant-label" placeholder="Size / option" value="${v.option_label || ''}">
+    <input type="text" class="dtc-variant-sku" placeholder="SKU" value="${v.sku || ''}">
+    <input type="number" class="dtc-variant-price" placeholder="Price" value="${v.price ?? ''}">
+    <input type="number" class="dtc-variant-compare" placeholder="Compare-at" value="${v.compare_at_price ?? ''}">
+    <input type="number" class="dtc-variant-cost" placeholder="Cost/item" value="${v.cost_per_item ?? ''}">
+    <input type="number" class="dtc-variant-ordered" placeholder="Ordered" value="${v.units_ordered ?? ''}">
+    <input type="number" class="dtc-variant-received" placeholder="Received" value="${v.units_received ?? ''}">
+    <button class="btn btn-sm btn-ghost" data-remove-variant-row title="Remove">✕</button>
+  </div>`;
+}
+
 // ─── Detail modal ─────────────────────────────────────────────────────────
-export function renderDtcProductDetail(p, { onEdit, onDelete, onPhaseChange, onStartPremarketing }) {
+export function renderDtcProductDetail(p, phaseDates, variants, { onEdit, onDelete, onDuplicate, onPhaseChange, onStartPremarketing, onSaveTimeline, onSaveVariants }) {
   const risk   = calcDropRisk(p);
   const weeks  = weeksUntilDrop(p);
   const days   = daysInPhase(p);
@@ -145,18 +160,45 @@ export function renderDtcProductDetail(p, { onEdit, onDelete, onPhaseChange, onS
     `<button class="stage-pill${p.phase===ph.id?' active':''}" data-dtc-phase="${ph.id}" style="font-size:10px;padding:4px 9px">${ph.label}</button>`
   ).join('');
 
-  const timeline = phaseDatesForProduct(p);
-  const timelineSection = timeline ? `
-    <div class="section-divider" style="margin-top:1rem">Phase Timeline</div>
+  const estimate = phaseDatesForProduct(p);
+  const timelineSection = estimate ? `
+    <div class="section-divider" style="margin-top:1rem">Phase Timeline <span style="font-weight:400;text-transform:none;letter-spacing:0">— editable, defaults to estimate</span></div>
     <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
-      ${timeline.map(t => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg3);border-radius:var(--radius)">
-          <span style="font-size:12px;color:var(--text2)">${t.label}</span>
-          <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${formatDate(t.start)} → ${formatDate(t.end)}</span>
-        </div>`).join('')}
+      ${estimate.map(t => {
+        const key = EDITABLE_PHASE_KEYS.includes(t.label.toLowerCase()) ? t.label.toLowerCase() : null;
+        if (!key) {
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg3);border-radius:var(--radius)">
+            <span style="font-size:12px;color:var(--text2)">${t.label}</span>
+            <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${formatDate(t.start)} → ${formatDate(t.end)}</span>
+          </div>`;
+        }
+        const override = phaseDates.find(d => d.phase_key === key);
+        return `<div class="dtc-timeline-row" data-phase-key="${key}" style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg3);border-radius:var(--radius);gap:8px">
+          <span style="font-size:12px;color:var(--text2);flex-shrink:0">${t.label}</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="date" class="dtc-timeline-start" value="${override?.planned_start || t.start}">
+            <span style="color:var(--text3);font-size:11px">→</span>
+            <input type="date" class="dtc-timeline-end" value="${override?.planned_end || t.end}">
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px">
+      <button class="btn btn-sm btn-accent" id="dtcSaveTimelineBtn">Save timeline</button>
     </div>` : (p.drop_date ? `
     <div class="section-divider" style="margin-top:1rem">Phase Timeline</div>
     <div style="margin-top:10px;font-size:12px;color:var(--text3)">No phase breakdown available for this product type yet.</div>` : '');
+
+  const variantsSection = `
+    <div class="section-divider" style="margin-top:1rem">Sizes &amp; SKUs</div>
+    <div class="dtc-variant-header">
+      <span>Size/Option</span><span>SKU</span><span>Price</span><span>Compare-at</span><span>Cost/item</span><span>Ordered</span><span>Received</span><span></span>
+    </div>
+    <div id="dtcVariantRows">${variants.map(v => variantRowHtml(v)).join('')}</div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px">
+      <button class="btn btn-sm btn-ghost" id="dtcAddVariantBtn">+ Add row</button>
+      <button class="btn btn-sm btn-accent" id="dtcSaveVariantsBtn">Save sizes &amp; SKUs</button>
+    </div>`;
 
   const samplingSection = p.phase === 'sampling' || ['production','warehouse'].includes(p.phase) ? `
     <div class="section-divider" style="margin-top:1rem">Sampling Details</div>
@@ -180,6 +222,7 @@ export function renderDtcProductDetail(p, { onEdit, onDelete, onPhaseChange, onS
       <h3>${p.name}</h3>
       <div style="display:flex;gap:6px">
         ${!p.premarketing_started_at ? `<button class="btn btn-sm" id="dtcPreMktBtn" style="background:rgba(155,127,232,.2);color:var(--purple);border-color:rgba(155,127,232,.4)">▶ Start Pre-marketing</button>` : `<span style="font-size:11px;color:var(--purple);display:flex;align-items:center">Pre-mkt: ${formatDate(p.premarketing_started_at)}</span>`}
+        <button class="btn btn-sm btn-ghost" id="dtcDuplicateBtn">Duplicate</button>
         <button class="btn btn-sm" id="dtcEditBtn">Edit</button>
         <button class="btn btn-sm btn-danger" id="dtcDeleteBtn">Delete</button>
         <button class="btn btn-sm btn-ghost" id="dtcCloseBtn">✕</button>
@@ -214,6 +257,7 @@ export function renderDtcProductDetail(p, { onEdit, onDelete, onPhaseChange, onS
       ${timelineSection}
       ${samplingSection}
       ${warehouseSection}
+      ${variantsSection}
       ${p.notes?`<div style="margin-top:1rem"><div class="section-divider">Notes</div><div class="notes-display" style="margin-top:8px">${p.notes}</div></div>`:''}
     </div>`;
 
@@ -221,9 +265,42 @@ export function renderDtcProductDetail(p, { onEdit, onDelete, onPhaseChange, onS
   document.getElementById('dtcCloseBtn').addEventListener('click', () => overlay.classList.add('hidden'));
   document.getElementById('dtcEditBtn').addEventListener('click', () => onEdit(p.id));
   document.getElementById('dtcDeleteBtn').addEventListener('click', () => onDelete(p.id));
+  document.getElementById('dtcDuplicateBtn').addEventListener('click', () => onDuplicate(p.id));
   document.querySelectorAll('[data-dtc-phase]').forEach(btn => btn.addEventListener('click', () => onPhaseChange(p.id, btn.dataset.dtcPhase)));
   const pmBtn = document.getElementById('dtcPreMktBtn');
   if (pmBtn) pmBtn.addEventListener('click', () => onStartPremarketing(p.id));
+
+  const saveTimelineBtn = document.getElementById('dtcSaveTimelineBtn');
+  if (saveTimelineBtn) saveTimelineBtn.addEventListener('click', () => {
+    const rows = Array.from(document.querySelectorAll('.dtc-timeline-row')).map(row => ({
+      phase_key:     row.dataset.phaseKey,
+      planned_start: row.querySelector('.dtc-timeline-start').value || null,
+      planned_end:   row.querySelector('.dtc-timeline-end').value || null,
+    }));
+    onSaveTimeline(p.id, rows);
+  });
+
+  const variantRows = document.getElementById('dtcVariantRows');
+  document.getElementById('dtcAddVariantBtn').addEventListener('click', () => {
+    variantRows.insertAdjacentHTML('beforeend', variantRowHtml());
+  });
+  variantRows.addEventListener('click', e => {
+    if (e.target.closest('[data-remove-variant-row]')) e.target.closest('[data-variant-row]').remove();
+  });
+  document.getElementById('dtcSaveVariantsBtn').addEventListener('click', () => {
+    const rows = Array.from(variantRows.querySelectorAll('[data-variant-row]'))
+      .map(row => ({
+        option_label:     row.querySelector('.dtc-variant-label').value.trim(),
+        sku:               row.querySelector('.dtc-variant-sku').value.trim(),
+        price:             row.querySelector('.dtc-variant-price').value,
+        compare_at_price:  row.querySelector('.dtc-variant-compare').value,
+        cost_per_item:     row.querySelector('.dtc-variant-cost').value,
+        units_ordered:     row.querySelector('.dtc-variant-ordered').value,
+        units_received:    row.querySelector('.dtc-variant-received').value,
+      }))
+      .filter(r => r.option_label || r.sku || r.price || r.units_ordered || r.units_received);
+    onSaveVariants(p.id, rows);
+  });
 }
 
 // ─── Form modal ───────────────────────────────────────────────────────────

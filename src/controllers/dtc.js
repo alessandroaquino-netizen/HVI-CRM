@@ -191,11 +191,67 @@ export async function fetchDtcMarketing() {
   return (data || []).map(rowToDtcMarketing);
 }
 
+// ─── dtc_product_variants (size/SKU breakdown) ────────────────────────────
+function rowToDtcVariant(r) {
+  return {
+    id:               r.id,
+    dtc_product_id:   r.dtc_product_id,
+    option_label:     r.option_label || '',
+    sku:              r.sku || '',
+    price:            r.price            != null ? Number(r.price)            : null,
+    compare_at_price: r.compare_at_price != null ? Number(r.compare_at_price) : null,
+    cost_per_item:    r.cost_per_item    != null ? Number(r.cost_per_item)    : null,
+    units_ordered:    r.units_ordered    != null ? Number(r.units_ordered)    : null,
+    units_received:   r.units_received   != null ? Number(r.units_received)   : null,
+  };
+}
+
+export async function fetchDtcVariants() {
+  const { data, error } = await supabase.from('dtc_product_variants').select('*').order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(rowToDtcVariant);
+}
+
+export function variantsForProduct(all, productId) {
+  return all.filter(v => v.dtc_product_id === productId);
+}
+
+// rows: [{ option_label, sku, price, compare_at_price, cost_per_item, units_ordered, units_received }]
+// Replaces the full variant set for a product — simplest correct approach for a small,
+// freely add/remove-able list edited as a whole from one form.
+export async function saveDtcVariants(productId, rows) {
+  const { error: delError } = await supabase.from('dtc_product_variants').delete().eq('dtc_product_id', productId);
+  if (delError) throw delError;
+  if (!rows.length) return;
+  const payload = rows.map(r => ({
+    dtc_product_id:   productId,
+    option_label:     r.option_label || 'Default',
+    sku:              r.sku || null,
+    price:            r.price            !== '' && r.price            != null ? parseFloat(r.price)            : null,
+    compare_at_price: r.compare_at_price !== '' && r.compare_at_price != null ? parseFloat(r.compare_at_price) : null,
+    cost_per_item:    r.cost_per_item    !== '' && r.cost_per_item    != null ? parseFloat(r.cost_per_item)    : null,
+    units_ordered:    r.units_ordered    !== '' && r.units_ordered    != null ? parseFloat(r.units_ordered)    : null,
+    units_received:   r.units_received   !== '' && r.units_received   != null ? parseFloat(r.units_received)   : null,
+  }));
+  const { error } = await supabase.from('dtc_product_variants').insert(payload);
+  if (error) throw error;
+}
+
+export async function copyDtcVariants(fromProductId, toProductId) {
+  const { data, error } = await supabase.from('dtc_product_variants').select('*').eq('dtc_product_id', fromProductId);
+  if (error) throw error;
+  if (!data || !data.length) return;
+  const payload = data.map(({ id, created_at, ...rest }) => ({ ...rest, dtc_product_id: toProductId }));
+  const { error: insError } = await supabase.from('dtc_product_variants').insert(payload);
+  if (insError) throw insError;
+}
+
 export function subscribeToDtc(supabaseClient, onChange) {
   return supabaseClient
     .channel('dtc-changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_products' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_financials' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_marketing' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_product_variants' }, onChange)
     .subscribe();
 }

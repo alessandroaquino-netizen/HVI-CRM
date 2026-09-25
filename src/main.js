@@ -17,7 +17,11 @@ import {
   fetchDtcProducts, saveDtcProduct, updateDtcPhase, deleteDtcProduct, startPremarketing,
   fetchDtcFinancials, saveDtcFinancial, deleteDtcFinancial,
   fetchDtcMarketing, subscribeToDtc,
+  fetchDtcVariants, saveDtcVariants, variantsForProduct, copyDtcVariants,
 } from './controllers/dtc.js';
+import {
+  fetchDtcPhaseDates, saveDtcPhaseDates, phaseDatesForDtcProduct, subscribeToDtcPhaseDates,
+} from './controllers/dtcPhaseDates.js';
 import { renderKPIs } from './views/kpi.js';
 import { renderPipeline } from './views/pipeline.js';
 import { renderList } from './views/list.js';
@@ -42,6 +46,8 @@ let leadActivity      = [];
 let dtcProducts       = [];
 let dtcFinancials     = [];
 let dtcMarketing      = [];
+let dtcVariants       = [];
+let dtcPhaseDates     = [];
 let currentView = 'pipeline';
 let editingId   = null;
 let editingProjectId = null;
@@ -53,6 +59,7 @@ let realtimeStageDates    = null;
 let realtimeActivity      = null;
 let realtimeLeadActivity  = null;
 let realtimeDtc           = null;
+let realtimeDtcPhaseDates = null;
 
 // ---------- helpers ----------
 function getFiltered() {
@@ -91,7 +98,7 @@ function render() {
 async function refresh() {
   // Stage-tracking / DTC tables are newer, optional migrations — don't let a not-yet-migrated
   // Supabase project take down leads/projects loading if they're missing.
-  const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes, dtcProductsRes, dtcFinancialsRes, dtcMarketingRes] = await Promise.all([
+  const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes, dtcProductsRes, dtcFinancialsRes, dtcMarketingRes, dtcVariantsRes, dtcPhaseDatesRes] = await Promise.all([
     fetchLeads(), fetchProjects(),
     fetchStageDates().catch(() => []),
     fetchActivity().catch(() => []),
@@ -99,11 +106,14 @@ async function refresh() {
     fetchDtcProducts().catch(() => []),
     fetchDtcFinancials().catch(() => []),
     fetchDtcMarketing().catch(() => []),
+    fetchDtcVariants().catch(() => []),
+    fetchDtcPhaseDates().catch(() => []),
   ]);
   leads = leadsRes; projects = projectsRes;
   projectStageDates = stageDatesRes; projectActivity = activityRes;
   leadActivity = leadActivityRes;
   dtcProducts = dtcProductsRes; dtcFinancials = dtcFinancialsRes; dtcMarketing = dtcMarketingRes;
+  dtcVariants = dtcVariantsRes; dtcPhaseDates = dtcPhaseDatesRes;
   render();
 }
 
@@ -282,12 +292,20 @@ async function handleAddComment(id, { stage, comment }) {
 function openDtcProductDetail(id) {
   const p = dtcProducts.find(x => x.id === id);
   if (!p) return;
-  renderDtcProductDetail(p, {
-    onEdit:             openDtcProductEdit,
-    onDelete:           handleDtcProductDelete,
-    onPhaseChange:      handleDtcPhaseChange,
-    onStartPremarketing: handleStartPremarketing,
-  });
+  renderDtcProductDetail(
+    p,
+    phaseDatesForDtcProduct(dtcPhaseDates, id),
+    variantsForProduct(dtcVariants, id),
+    {
+      onEdit:              openDtcProductEdit,
+      onDelete:            handleDtcProductDelete,
+      onDuplicate:         handleDuplicateDtcProduct,
+      onPhaseChange:       handleDtcPhaseChange,
+      onStartPremarketing: handleStartPremarketing,
+      onSaveTimeline:      handleSaveDtcPhaseTimeline,
+      onSaveVariants:      handleSaveDtcVariants,
+    },
+  );
 }
 
 function openDtcProductAdd() {
@@ -330,6 +348,34 @@ async function handleStartPremarketing(id) {
   catch (err) { alert('Could not start pre-marketing: ' + err.message); }
 }
 
+async function handleDuplicateDtcProduct(id) {
+  const src = dtcProducts.find(p => p.id === id);
+  if (!src) return;
+  try {
+    const newName = `${src.name} (Reorder)`;
+    const newId = await saveDtcProduct({
+      name: newName, product_type: src.product_type, category: src.category,
+      manufacturer: src.manufacturer, phase: 'idea', est_cost: src.est_cost, units: src.units,
+      figma_link: src.figma_link, tech_pack_link: src.tech_pack_link,
+    }, null);
+    await copyDtcVariants(id, newId);
+    // Seed financials the same way a normal new product does.
+    await saveDtcFinancial({ dtc_product_id: newId, product_name: newName, manufacturer: src.manufacturer }, null);
+    await refresh();
+    openDtcProductDetail(newId);
+  } catch (err) { alert('Could not duplicate product: ' + err.message); }
+}
+
+async function handleSaveDtcPhaseTimeline(id, rows) {
+  try { await saveDtcPhaseDates(id, rows); await refresh(); openDtcProductDetail(id); }
+  catch (err) { alert('Could not save phase timeline: ' + err.message); }
+}
+
+async function handleSaveDtcVariants(id, rows) {
+  try { await saveDtcVariants(id, rows); await refresh(); openDtcProductDetail(id); }
+  catch (err) { alert('Could not save sizes & SKUs: ' + err.message); }
+}
+
 // ---------- DTC financial actions ----------
 function openDtcFinancialAdd() {
   editingDtcFinancialId = null;
@@ -360,6 +406,7 @@ function subscribeRealtime() {
   if (!realtimeActivity)   realtimeActivity   = subscribeToActivity(refresh);
   if (!realtimeLeadActivity) realtimeLeadActivity = subscribeToLeadActivity(refresh);
   if (!realtimeDtc)        realtimeDtc        = subscribeToDtc(supabase, refresh);
+  if (!realtimeDtcPhaseDates) realtimeDtcPhaseDates = subscribeToDtcPhaseDates(refresh);
 }
 
 function unsubscribeRealtime() {
@@ -369,6 +416,7 @@ function unsubscribeRealtime() {
   if (realtimeActivity)   { supabase.removeChannel(realtimeActivity);   realtimeActivity   = null; }
   if (realtimeLeadActivity) { supabase.removeChannel(realtimeLeadActivity); realtimeLeadActivity = null; }
   if (realtimeDtc)        { supabase.removeChannel(realtimeDtc);        realtimeDtc        = null; }
+  if (realtimeDtcPhaseDates) { supabase.removeChannel(realtimeDtcPhaseDates); realtimeDtcPhaseDates = null; }
 }
 
 // ---------- auth ----------
