@@ -15,6 +15,13 @@ export const PRODUCT_CATEGORIES = [
   { id: 'new-line',   label: 'New Product Line',          color: '9B7FE8' },
 ];
 
+// ─── Priority ──────────────────────────────────────────────────────────────
+export const PRIORITIES = [
+  { id: 'low',    label: 'Low',    color: '8A8F98' },
+  { id: 'medium', label: 'Medium', color: 'F0C040' },
+  { id: 'high',   label: 'High',   color: 'E05555' },
+];
+
 // ─── Product types with lead times by category ────────────────────────────
 // totalWeeks: { restock, 'new-design', 'new-line' }
 // phases breakdown in weeks (used for risk calc)
@@ -33,6 +40,16 @@ export const PRODUCT_TYPES = [
     id: 'flannel', label: 'Flannel', manufacturer: 'bing-bing',
     totalWeeks: { restock: 5, 'new-design': 8, 'new-line': 21 },
     phases: { design_first: 1, design_final: 4, sampling: 3, production: 10, shipping: 3 },
+  },
+  {
+    id: 'jersey', label: 'Jersey', manufacturer: 'bing-bing',
+    totalWeeks: { restock: 5, 'new-design': 8, 'new-line': 18 },
+    phases: { design_first: 1, design_final: 4, sampling: 3, production: 6, shipping: 3 },
+  },
+  {
+    id: 'long-sleeve-button-up', label: 'Long Sleeve Button-Up', manufacturer: 'bing-bing',
+    totalWeeks: { restock: 5, 'new-design': 8, 'new-line': 18 },
+    phases: { design_first: 1, design_final: 4, sampling: 3, production: 6, shipping: 3 },
   },
   {
     id: 'hoodie', label: 'Hoodie', manufacturer: 'bing-bing',

@@ -1,4 +1,4 @@
-import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, MANUFACTURERS, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct } from '../dtc_constants.js';
+import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { renderListDetail } from './modal.js';
 
@@ -22,6 +22,12 @@ function categoryBadge(cat) {
   return `<span class="badge" style="background:rgba(${r},${g},${b},.15);color:#${c.color};font-size:9px">${c.label}</span>`;
 }
 
+function priorityBadge(priority) {
+  const pr = PRIORITIES.find(x => x.id === priority);
+  if (!pr) return '';
+  return `<span class="badge" style="background:rgba(255,255,255,.06);color:#${pr.color};font-size:9px">${pr.label} priority</span>`;
+}
+
 function productCard(p) {
   const risk  = calcDropRisk(p);
   const weeks = weeksUntilDrop(p);
@@ -38,6 +44,7 @@ function productCard(p) {
     <div class="lead-co" style="font-size:10px">${mfr ? mfr.label : (p.manufacturer || '—')}</div>
     <div class="lead-meta" style="margin-top:5px;flex-wrap:wrap;gap:4px">
       ${categoryBadge(p.category)}
+      ${priorityBadge(p.priority)}
       ${riskTag(risk)}
       ${p.drop_date ? `<span style="font-size:9px;font-family:var(--mono);color:${weeks!==null&&weeks<4?'var(--red)':'var(--text3)'}">Drop: ${formatDate(p.drop_date)}${weeks!==null?` (${weeks}w)`:''}</span>` : ''}
     </div>
@@ -246,6 +253,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { onEdit, onDele
       <div class="section-divider">Details</div>
       <div class="detail-grid" style="margin-top:10px">
         <div class="detail-field"><div class="lbl">Days in phase</div><div class="val">${days}</div></div>
+        <div class="detail-field"><div class="lbl">Priority</div><div class="val">${p.priority ? PRIORITIES.find(x=>x.id===p.priority)?.label : '—'}</div></div>
         <div class="detail-field"><div class="lbl">Est. cost</div><div class="val">${p.est_cost?'$'+Number(p.est_cost).toLocaleString():'—'}</div></div>
         <div class="detail-field"><div class="lbl">Units</div><div class="val">${p.units||'—'}</div></div>
         <div class="detail-field"><div class="lbl">50% Deposit</div><div class="val" style="color:${p.deposit_50_paid?'var(--green)':'var(--red)'}">${p.deposit_50_paid?'✓ Paid':'✗ Pending'}</div></div>
@@ -331,6 +339,9 @@ export function renderDtcProductForm(p = {}, editingId, { onSave }) {
         <div class="form-row"><label>Manufacturer</label>
           <select id="df_manufacturer"><option value="">— Select —</option>${MANUFACTURERS.map(m=>opt(m.id,p.manufacturer,m.label)).join('')}</select>
         </div>
+        <div class="form-row"><label>Priority</label>
+          <select id="df_priority"><option value="">— Select —</option>${PRIORITIES.map(pr=>opt(pr.id,p.priority,pr.label)).join('')}</select>
+        </div>
         <div class="form-row"><label>Drop date</label><input id="df_drop_date" type="date" value="${p.drop_date||''}"></div>
         <div class="form-row"><label>Phase start date</label><input id="df_phase_changed_at" type="date" value="${p.phase_changed_at||''}"></div>
         <div class="form-row"><label>Est. cost ($)</label><input id="df_est_cost" type="number" value="${p.est_cost||''}" placeholder="5000"></div>
@@ -375,7 +386,7 @@ export function renderDtcProductForm(p = {}, editingId, { onSave }) {
   document.getElementById('dtcFmSave').addEventListener('click', () => {
     onSave({
       name: g('df_name'), product_type: g('df_type'), category: g('df_category'),
-      phase: g('df_phase'), manufacturer: g('df_manufacturer'), drop_date: g('df_drop_date'),
+      phase: g('df_phase'), manufacturer: g('df_manufacturer'), priority: g('df_priority'), drop_date: g('df_drop_date'),
       phase_changed_at: g('df_phase_changed_at'), est_cost: g('df_est_cost'), units: g('df_units'),
       figma_link: g('df_figma'), tech_pack_link: g('df_techpack'),
       deposit_50_paid: cb('df_dep50'), final_50_paid: cb('df_fin50'),
