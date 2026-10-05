@@ -1,5 +1,10 @@
 import { supabase } from './supabase.js';
-import { signInWithGoogle, signOut, isAllowedUser, onAuthChange } from './auth.js';
+import { signInWithGoogle, signOut, authorizeSignedInUser, onAuthChange } from './auth.js';
+import { setMyAccess, isAdmin, canView, firstAllowedView } from './access.js';
+import {
+  fetchAppUsers, inviteUser, updateAppUser, setAppUserStatus, deleteAppUser,
+  captureInviteTokenFromUrl, getPendingInviteToken,
+} from './controllers/users.js';
 import { fetchLeads, saveLead, updateStage, deleteLead, subscribeToLeads } from './controllers/leads.js';
 import { fetchProjects, saveProject, updateProjectStage, deleteProject, subscribeToProjects } from './controllers/projects.js';
 import {
@@ -36,6 +41,7 @@ import { renderDtcCalendar } from './views/dtcCalendar.js';
 import { renderDtcFinancials, renderDtcFinancialForm } from './views/dtcFinancials.js';
 import { renderDtcDashboard } from './views/dtcDashboard.js';
 import { renderDtcMarketing } from './views/dtcMarketing.js';
+import { renderSettings, renderUserForm, renderInviteLink } from './views/settings.js';
 
 // ---------- state ----------
 let leads             = [];
@@ -48,6 +54,8 @@ let dtcFinancials     = [];
 let dtcMarketing      = [];
 let dtcVariants       = [];
 let dtcPhaseDates     = [];
+let appUsers          = [];
+let myEmail           = '';
 let currentView = 'pipeline';
 let editingId   = null;
 let editingProjectId = null;
@@ -74,7 +82,7 @@ function getFiltered() {
 
 const ALL_VIEWS = [
   'pipeline', 'list', 'disc', 'followups', 'projects', 'leadDashboard', 'projectsDashboard',
-  'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing',
+  'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings',
 ];
 
 // ---------- render ----------
@@ -93,12 +101,13 @@ function render() {
   if (currentView === 'dtcFinancials')     renderDtcFinancials(dtcFinancials, dtcProducts);
   if (currentView === 'dtcDashboard')      renderDtcDashboard(dtcProducts, dtcFinancials);
   if (currentView === 'dtcMarketing')      renderDtcMarketing(dtcMarketing, dtcProducts);
+  if (currentView === 'settings')          renderSettings(appUsers, myEmail, settingsHandlers);
 }
 
 async function refresh() {
   // Stage-tracking / DTC tables are newer, optional migrations — don't let a not-yet-migrated
   // Supabase project take down leads/projects loading if they're missing.
-  const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes, dtcProductsRes, dtcFinancialsRes, dtcMarketingRes, dtcVariantsRes, dtcPhaseDatesRes] = await Promise.all([
+  const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes, dtcProductsRes, dtcFinancialsRes, dtcMarketingRes, dtcVariantsRes, dtcPhaseDatesRes, appUsersRes] = await Promise.all([
     fetchLeads(), fetchProjects(),
     fetchStageDates().catch(() => []),
     fetchActivity().catch(() => []),
@@ -108,17 +117,20 @@ async function refresh() {
     fetchDtcMarketing().catch(() => []),
     fetchDtcVariants().catch(() => []),
     fetchDtcPhaseDates().catch(() => []),
+    isAdmin() ? fetchAppUsers().catch(() => []) : Promise.resolve([]),
   ]);
   leads = leadsRes; projects = projectsRes;
   projectStageDates = stageDatesRes; projectActivity = activityRes;
   leadActivity = leadActivityRes;
   dtcProducts = dtcProductsRes; dtcFinancials = dtcFinancialsRes; dtcMarketing = dtcMarketingRes;
   dtcVariants = dtcVariantsRes; dtcPhaseDates = dtcPhaseDatesRes;
+  appUsers = appUsersRes;
   render();
 }
 
 // ---------- navigation ----------
 function setView(view) {
+  if (!canView(view)) return;
   currentView = view;
   const titles = {
     pipeline: 'Pipeline', list: 'All Leads', disc: 'DISC Guide', followups: 'Follow-ups',
@@ -126,6 +138,7 @@ function setView(view) {
     projectsDashboard: 'Dashboard B2B Projects',
     dtcProducts: 'DTC Products', dtcCalendar: 'DTC Calendar', dtcFinancials: 'DTC Financials',
     dtcDashboard: 'DTC Dashboard', dtcMarketing: 'Marketing Operations',
+    settings: 'User Management',
   };
   document.getElementById('viewTitle').textContent = titles[view] || view;
   ALL_VIEWS.forEach(v => {
@@ -134,7 +147,7 @@ function setView(view) {
   document.querySelectorAll('#sidebarNav .nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
   });
-  const nonLeadViews = ['projects', 'leadDashboard', 'projectsDashboard', 'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing'];
+  const nonLeadViews = ['projects', 'leadDashboard', 'projectsDashboard', 'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings'];
   // Show/hide Add Lead button — not relevant outside the leads views
   const addBtn = document.getElementById('addLeadBtn');
   if (addBtn) addBtn.style.display = nonLeadViews.includes(view) ? 'none' : '';
@@ -419,16 +432,82 @@ function unsubscribeRealtime() {
   if (realtimeDtcPhaseDates) { supabase.removeChannel(realtimeDtcPhaseDates); realtimeDtcPhaseDates = null; }
 }
 
+// ---------- user management (admin) ----------
+const settingsHandlers = {
+  onInvite: () => renderUserForm(null, {
+    onSave: async (data, showError) => {
+      try {
+        await inviteUser(data, myEmail);
+        await refresh();
+        const created = appUsers.find(u => u.email === data.email);
+        if (created) renderInviteLink(created); else closeModal();
+      } catch (err) {
+        showError(/duplicate|unique/i.test(err.message) ? 'That email already has an account or pending invite.' : err.message);
+      }
+    },
+  }),
+  onEdit: id => {
+    const u = appUsers.find(x => x.id === id);
+    if (!u) return;
+    renderUserForm(u, {
+      onSave: async (data, showError) => {
+        try { await updateAppUser(id, data); closeModal(); await refresh(); }
+        catch (err) { showError(err.message); }
+      },
+    });
+  },
+  onToggle: async id => {
+    const u = appUsers.find(x => x.id === id);
+    if (!u) return;
+    const next = u.status === 'disabled' ? (u.accepted_at ? 'active' : 'invited') : 'disabled';
+    if (next === 'disabled' && !confirm(`Disable access for ${u.email}?`)) return;
+    try { await setAppUserStatus(id, next); await refresh(); }
+    catch (err) { alert('Could not update user: ' + err.message); }
+  },
+  onDelete: async id => {
+    const u = appUsers.find(x => x.id === id);
+    if (!u || !confirm(`Remove ${u.email}? They will lose access immediately.`)) return;
+    try { await deleteAppUser(id); await refresh(); }
+    catch (err) { alert('Could not remove user: ' + err.message); }
+  },
+  onShowLink: id => {
+    const u = appUsers.find(x => x.id === id);
+    if (u) renderInviteLink(u);
+  },
+};
+
+function applyNavAccess() {
+  document.querySelectorAll('#sidebarNav .nav-item').forEach(el => {
+    el.style.display = canView(el.dataset.view) ? '' : 'none';
+  });
+  // Hide section labels whose items are all hidden
+  document.querySelectorAll('#sidebarNav .nav-section-label').forEach(label => {
+    let n = label.nextElementSibling, any = false;
+    while (n && !n.classList.contains('nav-section-label')) {
+      if (n.classList.contains('nav-item') && n.style.display !== 'none') any = true;
+      n = n.nextElementSibling;
+    }
+    label.style.display = any ? '' : 'none';
+  });
+  const searchBar = document.querySelector('.search-bar');
+  if (searchBar) searchBar.style.visibility = canView('pipeline') || canView('list') ? '' : 'hidden';
+}
+
 // ---------- auth ----------
-function showApp(user) {
+function showApp(user, access) {
+  setMyAccess(access);
+  myEmail = (user.email || '').toLowerCase();
   document.getElementById('loginShell').classList.add('hidden');
   document.getElementById('appShell').classList.remove('hidden');
   document.getElementById('topUserEmail').textContent = user.email;
   const isTestEnv = (import.meta.env.VITE_SUPABASE_URL || '').includes('ymzeklhdzpmaakvlxrkx');
   const banner = document.getElementById('testEnvBanner');
   if (banner) banner.classList.toggle('hidden', !isTestEnv);
+  applyNavAccess();
+  const startView = canView(currentView) ? currentView : firstAllowedView();
   subscribeRealtime();
   refresh();
+  if (startView) setView(startView);
 }
 
 function showLogin(message = '') {
@@ -482,14 +561,16 @@ function wireEvents() {
 // ---------- bootstrap ----------
 async function bootstrap() {
   wireEvents();
+  const inviteToken = captureInviteTokenFromUrl() || getPendingInviteToken();
+  if (inviteToken) document.getElementById('loginInviteNote').classList.remove('hidden');
   onAuthChange(showApp, showLogin);
 
   const { data: { session } } = await supabase.auth.getSession();
-  if (session && await isAllowedUser()) {
-    const { data: { user } } = await supabase.auth.getUser();
-    showApp(user);
+  if (session) {
+    const result = await authorizeSignedInUser();
+    if (result.error) { await signOut(); showLogin(result.error); }
+    else showApp(result.user, result.access);
   } else {
-    if (session) await signOut();
     showLogin();
   }
 }
