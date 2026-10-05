@@ -63,16 +63,18 @@ FROM auth.users u
 WHERE lower(u.email) ~ '@highvoltageindustries\.com$'
 ON CONFLICT (email) DO NOTHING;
 
--- Admins: Alessandro (exact email) + Tony and Adriana (matched by first name — verify below).
-UPDATE app_users SET role = 'admin', status = 'active'
-WHERE email = 'alessandro.aquino@highvoltageindustries.com'
-   OR email LIKE 'tony%@highvoltageindustries.com'
-   OR email LIKE 'adriana%@highvoltageindustries.com';
+-- Admins: Alessandro (exact email), the shared info@ and support@ mailboxes, plus Tony and
+-- Adriana (matched by first name — verify in the final SELECT).
+INSERT INTO app_users (email, full_name, role, status, accepted_at, invite_token)
+VALUES
+  ('alessandro.aquino@highvoltageindustries.com', 'Alessandro Aquino', 'admin', 'active', now(), NULL),
+  ('info@highvoltageindustries.com',              'HVI Info',          'admin', 'active', now(), NULL),
+  ('support@highvoltageindustries.com',           'HVI Support',       'admin', 'active', now(), NULL)
+ON CONFLICT (email) DO UPDATE SET role = 'admin', status = 'active';
 
--- Make sure Alessandro exists even if he never signed in on this project.
-INSERT INTO app_users (email, full_name, role, status, accepted_at)
-VALUES ('alessandro.aquino@highvoltageindustries.com', 'Alessandro Aquino', 'admin', 'active', now())
-ON CONFLICT (email) DO NOTHING;
+UPDATE app_users SET role = 'admin', status = 'active'
+WHERE email LIKE 'tony%@highvoltageindustries.com'
+   OR email LIKE 'adriana%@highvoltageindustries.com';
 
 -- ─── 4. Guard: never remove/demote/disable the last active admin ───────────
 CREATE OR REPLACE FUNCTION app_users_keep_an_admin() RETURNS trigger
