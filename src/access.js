@@ -5,6 +5,7 @@ export const ACCESS_CATALOG = [
     { id: 'list',              label: 'All Leads' },
     { id: 'followups',         label: 'Follow-ups' },
     { id: 'leadDashboard',     label: 'Dashboard Lead Management' },
+    { id: 'necaLeads',         label: 'NECA Potential Leads' },
   ]},
   { module: 'Operations (B2B Projects)', pages: [
     { id: 'projects',          label: 'B2B Projects' },

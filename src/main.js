@@ -42,6 +42,8 @@ import { renderDtcFinancials, renderDtcFinancialForm } from './views/dtcFinancia
 import { renderDtcDashboard } from './views/dtcDashboard.js';
 import { renderDtcMarketing } from './views/dtcMarketing.js';
 import { renderSettings, renderUserForm, renderInviteLink } from './views/settings.js';
+import { fetchNecaLeads, updateNecaLead, deleteNecaLead } from './controllers/neca.js';
+import { renderNecaLeads, renderNecaLeadDetail } from './views/necaLeads.js';
 
 // ---------- state ----------
 let leads             = [];
@@ -55,6 +57,8 @@ let dtcMarketing      = [];
 let dtcVariants       = [];
 let dtcPhaseDates     = [];
 let appUsers          = [];
+let necaLeads         = [];
+let necaLoaded        = false;
 let myEmail           = '';
 let currentView = 'pipeline';
 let editingId   = null;
@@ -82,7 +86,7 @@ function getFiltered() {
 
 const ALL_VIEWS = [
   'pipeline', 'list', 'disc', 'followups', 'projects', 'leadDashboard', 'projectsDashboard',
-  'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings',
+  'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads',
 ];
 
 // ---------- render ----------
@@ -102,6 +106,7 @@ function render() {
   if (currentView === 'dtcDashboard')      renderDtcDashboard(dtcProducts, dtcFinancials);
   if (currentView === 'dtcMarketing')      renderDtcMarketing(dtcMarketing, dtcProducts);
   if (currentView === 'settings')          renderSettings(appUsers, myEmail, settingsHandlers);
+  if (currentView === 'necaLeads')         renderNecaLeads(necaLeads, { onOpen: openNecaDetail });
 }
 
 async function refresh() {
@@ -132,13 +137,14 @@ async function refresh() {
 function setView(view) {
   if (!canView(view)) return;
   currentView = view;
+  if (view === 'necaLeads' && !necaLoaded) loadNecaLeads();
   const titles = {
     pipeline: 'Pipeline', list: 'All Leads', disc: 'DISC Guide', followups: 'Follow-ups',
     projects: 'B2B Projects', leadDashboard: 'Dashboard Lead Management',
     projectsDashboard: 'Dashboard B2B Projects',
     dtcProducts: 'DTC Products', dtcCalendar: 'DTC Calendar', dtcFinancials: 'DTC Financials',
     dtcDashboard: 'DTC Dashboard', dtcMarketing: 'Marketing Operations',
-    settings: 'User Management',
+    settings: 'User Management', necaLeads: 'NECA Potential Leads',
   };
   document.getElementById('viewTitle').textContent = titles[view] || view;
   ALL_VIEWS.forEach(v => {
@@ -147,7 +153,7 @@ function setView(view) {
   document.querySelectorAll('#sidebarNav .nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
   });
-  const nonLeadViews = ['projects', 'leadDashboard', 'projectsDashboard', 'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings'];
+  const nonLeadViews = ['projects', 'leadDashboard', 'projectsDashboard', 'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads'];
   // Show/hide Add Lead button — not relevant outside the leads views
   const addBtn = document.getElementById('addLeadBtn');
   if (addBtn) addBtn.style.display = nonLeadViews.includes(view) ? 'none' : '';
@@ -430,6 +436,29 @@ function unsubscribeRealtime() {
   if (realtimeLeadActivity) { supabase.removeChannel(realtimeLeadActivity); realtimeLeadActivity = null; }
   if (realtimeDtc)        { supabase.removeChannel(realtimeDtc);        realtimeDtc        = null; }
   if (realtimeDtcPhaseDates) { supabase.removeChannel(realtimeDtcPhaseDates); realtimeDtcPhaseDates = null; }
+}
+
+// ---------- NECA potential leads (separate table, loaded on demand) ----------
+async function loadNecaLeads() {
+  try { necaLeads = await fetchNecaLeads(); necaLoaded = true; }
+  catch (err) { necaLeads = []; alert('Could not load NECA leads (has migration_neca_leads.sql been run?): ' + err.message); }
+  if (currentView === 'necaLeads') render();
+}
+
+function openNecaDetail(id) {
+  const l = necaLeads.find(x => x.id === id);
+  if (!l) return;
+  renderNecaLeadDetail(l, {
+    onSave: async (leadId, data) => {
+      try { await updateNecaLead(leadId, data); closeModal(); await loadNecaLeads(); }
+      catch (err) { alert('Could not save: ' + err.message); }
+    },
+    onDelete: async leadId => {
+      if (!confirm('Delete this NECA lead?')) return;
+      try { await deleteNecaLead(leadId); closeModal(); await loadNecaLeads(); }
+      catch (err) { alert('Could not delete: ' + err.message); }
+    },
+  });
 }
 
 // ---------- user management (admin) ----------
