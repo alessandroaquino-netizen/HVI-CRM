@@ -42,7 +42,9 @@ import { renderDtcFinancials, renderDtcFinancialForm } from './views/dtcFinancia
 import { renderDtcDashboard } from './views/dtcDashboard.js';
 import { renderDtcMarketing } from './views/dtcMarketing.js';
 import { renderSettings, renderUserForm, renderInviteLink } from './views/settings.js';
-import { fetchNecaLeads, updateNecaLead, deleteNecaLead } from './controllers/neca.js';
+import {
+  fetchNecaLeads, updateNecaLead, deleteNecaLead, linkNecaToLead, unlinkNecaFromLead, dismissNecaSuggestion, runNecaCrosslink,
+} from './controllers/neca.js';
 import { renderNecaLeads, renderNecaLeadDetail } from './views/necaLeads.js';
 
 // ---------- state ----------
@@ -106,7 +108,7 @@ function render() {
   if (currentView === 'dtcDashboard')      renderDtcDashboard(dtcProducts, dtcFinancials);
   if (currentView === 'dtcMarketing')      renderDtcMarketing(dtcMarketing, dtcProducts);
   if (currentView === 'settings')          renderSettings(appUsers, myEmail, settingsHandlers);
-  if (currentView === 'necaLeads')         renderNecaLeads(necaLeads, { onOpen: openNecaDetail });
+  if (currentView === 'necaLeads')         renderNecaLeads(necaLeads, { onOpen: openNecaDetail, onMatch: handleNecaMatch });
 }
 
 async function refresh() {
@@ -448,7 +450,10 @@ async function loadNecaLeads() {
 function openNecaDetail(id) {
   const l = necaLeads.find(x => x.id === id);
   if (!l) return;
+  const after = async () => { await refresh(); await loadNecaLeads(); };
   renderNecaLeadDetail(l, {
+    linkedLead: l.linked_lead_id ? leads.find(x => x.id === l.linked_lead_id) : null,
+    suggestedLead: l.suggested_lead_id ? leads.find(x => x.id === l.suggested_lead_id) : null,
     onSave: async (leadId, data) => {
       try { await updateNecaLead(leadId, data); closeModal(); await loadNecaLeads(); }
       catch (err) { alert('Could not save: ' + err.message); }
@@ -458,7 +463,64 @@ function openNecaDetail(id) {
       try { await deleteNecaLead(leadId); closeModal(); await loadNecaLeads(); }
       catch (err) { alert('Could not delete: ' + err.message); }
     },
+    onAddToPipeline: handleAddNecaToPipeline,
+    onOpenLead: leadId => { closeModal(); setView('pipeline'); openDetail(leadId); },
+    onLink: async n => {
+      try { await linkNecaToLead(n.id, n.suggested_lead_id); await after(); openNecaDetail(n.id); }
+      catch (err) { alert('Could not link: ' + err.message); }
+    },
+    onDismiss: async n => {
+      try { await dismissNecaSuggestion(n.id); await loadNecaLeads(); openNecaDetail(n.id); }
+      catch (err) { alert('Could not dismiss: ' + err.message); }
+    },
+    onUnlink: async n => {
+      if (!confirm('Unlink this company from the pipeline lead? Both records are kept.')) return;
+      try { await unlinkNecaFromLead(n.id, n.linked_lead_id); await after(); openNecaDetail(n.id); }
+      catch (err) { alert('Could not unlink: ' + err.message); }
+    },
   });
+}
+
+// Copies a NECA company into the pipeline as a new lead. The NECA record is never moved or removed.
+async function handleAddNecaToPipeline(n) {
+  if (!confirm(`Copy "${n.company}" to the sales pipeline as a new lead?\nIt will also stay on the NECA list.`)) return;
+  const c = (n.contacts || []).find(x => x.name) || {};
+  const notes = [
+    `From NECA Potential Leads — ${n.tier ? 'Tier ' + n.tier + ', ' : ''}${n.score != null ? n.score + '/100' : 'not scored'}.`,
+    n.score_rationale && 'Why pursue: ' + n.score_rationale,
+    n.buying_signals && 'Buying signals: ' + n.buying_signals,
+    n.suggested_angle && 'Suggested angle: ' + n.suggested_angle,
+    n.top_executive_name && `Executive: ${n.top_executive_name}${n.top_executive_title ? ' (' + n.top_executive_title + ')' : ''}`,
+    n.website && 'Website: ' + n.website,
+  ].filter(Boolean).join('\n');
+  try {
+    const newId = await saveLead({
+      company: n.company, contact: c.name || '', title: c.title || '', phone: c.phone || '', email: c.email || '',
+      segment: 'High voltage contractor', disc: '', stage: 'Prospect',
+      est: '', units: '', proposalDate: '', followupDate: '', followupNote: '', notes, collected: '', cadenceTotal: '',
+    }, null);
+    await linkNecaToLead(n.id, newId);
+    await addLeadActivity(newId, { comment: 'Added to the pipeline from NECA Potential Leads.' });
+    await refresh();
+    await loadNecaLeads();
+    openNecaDetail(n.id);
+  } catch (err) { alert('Could not add to pipeline: ' + err.message); }
+}
+
+async function handleNecaMatch() {
+  try {
+    const r = await runNecaCrosslink();
+    await refresh();
+    await loadNecaLeads();
+    alert(`Matching done.\n${r.auto_linked} new exact match(es) linked automatically.\n${r.suggestions} possible match(es) to review (open a company marked "Possible match").`);
+  } catch (err) { alert('Could not match (has migration_neca_v2.sql been run?): ' + err.message); }
+}
+
+async function openNecaFromLead(necaId) {
+  closeModal();
+  if (!necaLoaded) await loadNecaLeads();
+  setView('necaLeads');
+  openNecaDetail(necaId);
 }
 
 // ---------- user management (admin) ----------
@@ -570,6 +632,8 @@ function wireEvents() {
 
   // Delegated clicks for lead cards, project cards, backlog "Start project", and DTC records
   document.addEventListener('click', e => {
+    const necaEl = e.target.closest('[data-open-neca-lead]');
+    if (necaEl) { openNecaFromLead(necaEl.dataset.openNecaLead); return; }
     const startEl = e.target.closest('[data-start-project]');
     if (startEl) { openProjectFromLead(startEl.dataset.startProject); return; }
     const leadEl = e.target.closest('[data-open-lead]');

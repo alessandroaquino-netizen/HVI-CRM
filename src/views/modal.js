@@ -110,6 +110,9 @@ export function renderDetail(lead, activity, { onEdit, onDelete, onStageChange, 
         </div>
         <button class="btn btn-sm btn-ghost" id="mdDuplicateBtn">New opportunity from this contact</button>
       </div>
+      ${lead.necaLeadId ? `<div class="notes-display" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center">
+        <span><span class="badge" style="background:rgba(155,127,232,.2);color:var(--purple)">NECA member</span> This company is also on the NECA Potential Leads list.</span>
+        <button class="btn btn-sm" data-open-neca-lead="${lead.necaLeadId}">View NECA record</button></div>` : ''}
       <div class="section-divider">Stage</div>
       <div class="stage-selector" style="margin-bottom:1.5rem">${stagePills}</div>
       <div class="section-divider">Details</div>

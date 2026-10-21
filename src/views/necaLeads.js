@@ -1,3 +1,4 @@
+import { computeNecaScore } from '../controllers/neca.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PAGE_SIZE = 100;
@@ -14,18 +15,28 @@ const QUAL_STATUS = [
   { id: 'preliminary', label: 'Preliminary (directory data only)' },
   { id: 'researched',  label: 'Researched' },
 ];
+const BANDS = ['1-50', '51-100', '101-500', '501-1000', '1000+'];
+const BIG_BANDS = ['501-1000', '1000+'];
 const CONTACT_ROLES = [
   { id: 'buyer',     label: 'Contact #1 — Likely buyer' },
   { id: 'champion',  label: 'Contact #2 — Influencer / champion' },
   { id: 'executive', label: 'Contact #3 — Executive / escalation' },
+];
+const FACTOR_STATUS = [
+  { id: 'verified',   label: 'Verified' },
+  { id: 'estimated',  label: 'Estimated' },
+  { id: 'unverified', label: 'Not researched' },
 ];
 const TIER_STYLE = {
   A: 'background:rgba(76,175,125,.2);color:var(--green)',
   B: 'background:rgba(240,192,64,.2);color:var(--accent)',
   C: 'background:rgba(138,143,152,.2);color:var(--text3)',
 };
+const STATUS_COLOR = { verified: 'var(--green)', estimated: 'var(--accent)', unverified: 'var(--text3)' };
+const isLine = l => /line (constructors|builders)/i.test(`${l.chapters} ${l.chapter}`);
 
-let filters = { q: '', tier: '', state: '', outreach: '', status: '' };
+const EMPTY = { q: '', tier: '', state: '', outreach: '', status: '', band: '', pipeline: '', exec: '', line: '', source: '' };
+let filters = { ...EMPTY };
 let page = 0;
 
 function matches(l) {
@@ -33,9 +44,16 @@ function matches(l) {
   if (filters.state && l.state !== filters.state) return false;
   if (filters.outreach && l.outreach_status !== filters.outreach) return false;
   if (filters.status && l.qualification_status !== filters.status) return false;
+  if (filters.source && l.source !== filters.source) return false;
+  if (filters.band === 'big' ? !BIG_BANDS.includes(l.employee_band) : (filters.band && l.employee_band !== filters.band)) return false;
+  if (filters.pipeline === 'yes' && !l.linked_lead_id) return false;
+  if (filters.pipeline === 'no' && l.linked_lead_id) return false;
+  if (filters.exec === 'yes' && !l.top_executive_name) return false;
+  if (filters.exec === 'no' && l.top_executive_name) return false;
+  if (filters.line === 'yes' && !isLine(l)) return false;
   if (filters.q) {
     const q = filters.q.toLowerCase();
-    const hay = `${l.company} ${l.city} ${l.state} ${l.chapter} ${(l.contacts || []).map(c => c.name).join(' ')}`.toLowerCase();
+    const hay = `${l.company} ${l.city} ${l.state} ${l.chapter} ${l.top_executive_name} ${(l.contacts || []).map(c => c.name).join(' ')}`.toLowerCase();
     if (!hay.includes(q)) return false;
   }
   return true;
@@ -44,53 +62,81 @@ function matches(l) {
 const TIER_ORDER = { A: 0, B: 1, C: 2, '': 3 };
 function sorted(list) {
   return [...list].sort((a, b) =>
-    (TIER_ORDER[a.tier] - TIER_ORDER[b.tier]) || ((b.score ?? -1) - (a.score ?? -1)) || a.company.localeCompare(b.company));
+    (TIER_ORDER[a.tier] - TIER_ORDER[b.tier]) ||
+    ((b.qualification_status === 'researched') - (a.qualification_status === 'researched')) ||
+    ((b.score ?? -1) - (a.score ?? -1)) || a.company.localeCompare(b.company));
 }
 
-export function renderNecaLeads(leads, { onOpen }) {
+export function renderNecaLeads(leads, { onOpen, onMatch }) {
   const el = document.getElementById('necaLeadsView');
   if (!el) return;
   const count = t => leads.filter(l => l.tier === t).length;
-  const contacted = leads.filter(l => l.outreach_status !== 'not_contacted').length;
   const states = [...new Set(leads.map(l => l.state).filter(Boolean))].sort();
+  const sources = [...new Set(leads.map(l => l.source).filter(Boolean))].sort();
   const filtered = sorted(leads.filter(matches));
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   if (page >= pages) page = pages - 1;
   const slice = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
   const sel = (id, cur, opts, all) => `<select class="neca-filter" data-f="${id}" style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;padding:4px 8px">
     <option value="">${all}</option>${opts.map(o => `<option value="${esc(o.id)}" ${cur === o.id ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+  const kpi = (label, val, color, sub) => `<div class="kpi-card" style="padding:.9rem 1.1rem"><div class="kpi-label">${label}</div><div class="kpi-val" style="font-size:22px;${color ? 'color:' + color : ''}">${val}</div>${sub ? `<div class="kpi-sub">${sub}</div>` : ''}</div>`;
+  const chip = (label, set, active) => `<button class="btn btn-sm ${active ? 'btn-accent' : 'btn-ghost'}" data-segment='${esc(JSON.stringify(set))}'>${label}</button>`;
+  const isSeg = set => Object.entries(set).every(([k, v]) => filters[k] === v) && Object.entries(filters).every(([k, v]) => k === 'q' || set[k] === v || !v);
 
-  const kpi = (label, val, color) => `<div class="kpi-card" style="padding:.9rem 1.1rem"><div class="kpi-label">${label}</div><div class="kpi-val" style="font-size:22px;${color ? 'color:' + color : ''}">${val}</div></div>`;
+  const inPipeline = leads.filter(l => l.linked_lead_id).length;
+  const withExec = leads.filter(l => l.top_executive_name).length;
+  const researched = leads.filter(l => l.qualification_status === 'researched').length;
+  const pendingSugg = leads.filter(l => !l.linked_lead_id && l.suggested_lead_id).length;
 
   el.innerHTML = `
-    <div style="font-size:12px;color:var(--text3);margin-bottom:1rem">
-      Prospect list from the NECA member directory. Kept separate from the main Leads. Scores marked <b>Preliminary</b> use directory data only — employee count, events and apparel signals still need research.
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1rem">
+      <div style="font-size:12px;color:var(--text3);max-width:760px">
+        Prospect list from the NECA member directory, kept separate from the main Leads. A company is only copied to the pipeline when you click <b>Add to pipeline</b> —
+        it always stays on this list. Scores marked <b>prelim</b> use directory data only; open a company to see exactly which rubric factors were scored, estimated or not yet researched.
+      </div>
+      <button class="btn btn-sm" id="necaMatchBtn" title="Tag companies that already exist in the pipeline">↔ Match with pipeline${pendingSugg ? ` (${pendingSugg} to review)` : ''}</button>
     </div>
-    <div class="proj-summary" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.2rem">
+    <div class="proj-summary" style="grid-template-columns:repeat(6,1fr);margin-bottom:1.2rem">
       ${kpi('Total companies', leads.length)}
       ${kpi('A leads', count('A'), 'var(--green)')}
       ${kpi('B leads', count('B'), 'var(--accent)')}
-      ${kpi('C leads', count('C'))}
-      ${kpi('Contacted', contacted, 'var(--blue)')}
+      ${kpi('Researched', researched, 'var(--blue)', 'beyond directory data')}
+      ${kpi('With executive', withExec)}
+      ${kpi('In pipeline', inPipeline, 'var(--purple)')}
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Segments:</span>
+      ${chip('Tier A', { tier: 'A' }, isSeg({ tier: 'A' }))}
+      ${chip('Large (500+)', { band: 'big' }, isSeg({ band: 'big' }))}
+      ${chip('Line contractors', { line: 'yes' }, isSeg({ line: 'yes' }))}
+      ${chip('Researched', { status: 'researched' }, isSeg({ status: 'researched' }))}
+      ${chip('Has executive', { exec: 'yes' }, isSeg({ exec: 'yes' }))}
+      ${chip('Not in pipeline', { pipeline: 'no' }, isSeg({ pipeline: 'no' }))}
+      ${chip('In pipeline', { pipeline: 'yes' }, isSeg({ pipeline: 'yes' }))}
     </div>
     <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
-      <input id="necaSearch" placeholder="Search company, city, chapter, contact…" value="${esc(filters.q)}" style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;padding:5px 9px;min-width:260px">
+      <input id="necaSearch" placeholder="Search company, city, chapter, executive…" value="${esc(filters.q)}" style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;padding:5px 9px;min-width:240px">
       ${sel('tier', filters.tier, [{ id: 'A', label: 'Tier A' }, { id: 'B', label: 'Tier B' }, { id: 'C', label: 'Tier C' }, { id: 'none', label: 'No tier' }], 'All tiers')}
+      ${sel('band', filters.band, [{ id: 'big', label: '500+ employees' }, ...BANDS.map(b => ({ id: b, label: b + ' employees' }))], 'All sizes')}
       ${sel('state', filters.state, states.map(s => ({ id: s, label: s })), 'All states')}
       ${sel('outreach', filters.outreach, NECA_OUTREACH, 'All outreach')}
       ${sel('status', filters.status, QUAL_STATUS, 'All qualification')}
-      ${Object.values(filters).some(Boolean) ? '<button class="btn btn-ghost btn-sm" id="necaClear">✕ Clear</button>' : ''}
+      ${sources.length > 1 ? sel('source', filters.source, sources.map(s => ({ id: s, label: s })), 'All sources') : ''}
+      ${Object.entries(filters).some(([, v]) => v) ? '<button class="btn btn-ghost btn-sm" id="necaClear">✕ Clear</button>' : ''}
       <span style="margin-left:auto;font-size:11px;color:var(--text3)">${filtered.length} of ${leads.length}</span>
     </div>
     <table class="list-table">
-      <thead><tr><th>Company</th><th>Location</th><th>Chapter</th><th>Tier</th><th>Score</th><th>Contacts</th><th>Outreach</th></tr></thead>
+      <thead><tr><th>Company</th><th>Location</th><th>Tier / score</th><th>Size</th><th>Executive</th><th>Pipeline</th><th>Outreach</th></tr></thead>
       <tbody>${slice.map(l => `<tr data-open-neca="${l.id}" style="cursor:pointer">
-        <td><div style="font-weight:500">${esc(l.company)}</div>${l.website ? `<div style="font-size:11px;color:var(--text3)">${esc(l.website.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</div>` : ''}</td>
+        <td><div style="font-weight:500">${esc(l.company)}${l.memberships_count > 1 ? ` <span style="font-size:10px;color:var(--text3);font-family:var(--mono)">×${l.memberships_count}</span>` : ''}</div>${l.website ? `<div style="font-size:11px;color:var(--text3)">${esc(l.website.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</div>` : ''}</td>
         <td style="font-size:12px;color:var(--text2)">${esc([l.city, l.state].filter(Boolean).join(', '))}</td>
-        <td style="font-size:12px;color:var(--text2)">${esc(l.chapter.replace(/ Chapter NECA$/, ''))}</td>
-        <td>${l.tier ? `<span class="badge" style="${TIER_STYLE[l.tier]}">${l.tier}</span>` : '<span style="color:var(--text3)">—</span>'}${l.tier && l.qualification_status === 'preliminary' ? '<span style="font-size:9px;color:var(--text3);margin-left:4px">prelim</span>' : ''}</td>
-        <td style="font-family:var(--mono);font-size:12px">${l.score ?? '—'}</td>
-        <td style="font-size:12px;color:var(--text2)">${(l.contacts || []).filter(c => c.name).length || '—'}</td>
+        <td>${l.tier ? `<span class="badge" style="${TIER_STYLE[l.tier]}">${l.tier}</span>` : '<span style="color:var(--text3)">—</span>'}
+            <span style="font-family:var(--mono);font-size:12px;margin-left:4px">${l.score ?? ''}</span>
+            <span style="font-size:9px;color:var(--text3);margin-left:3px">${l.qualification_status === 'researched' ? 'researched' : l.factors_evaluated ? l.factors_evaluated + '/10 factors' : ''}</span></td>
+        <td style="font-size:12px;color:var(--text2)">${esc(l.employee_band || '—')}</td>
+        <td style="font-size:12px;color:var(--text2)">${l.top_executive_name ? `${esc(l.top_executive_name)}<div style="font-size:10px;color:var(--text3)">${esc(l.top_executive_title)}</div>` : '<span style="color:var(--text3)">—</span>'}</td>
+        <td>${l.linked_lead_id ? '<span class="badge" style="background:rgba(155,127,232,.2);color:var(--purple)">In pipeline</span>' : (l.suggested_lead_id ? '<span style="font-size:10px;color:var(--accent)">Possible match</span>' : '<span style="color:var(--text3)">—</span>')}</td>
         <td style="font-size:12px;color:${l.outreach_status === 'not_contacted' ? 'var(--text3)' : 'var(--blue)'}">${esc(NECA_OUTREACH.find(o => o.id === l.outreach_status)?.label || '')}</td>
       </tr>`).join('') || '<tr><td colspan="7" style="color:var(--text3)">No companies match.</td></tr>'}</tbody>
     </table>
@@ -100,50 +146,95 @@ export function renderNecaLeads(leads, { onOpen }) {
       <button class="btn btn-sm btn-ghost" id="necaNext" ${page >= pages - 1 ? 'disabled' : ''}>Next →</button>
     </div>`;
 
-  const rerender = () => renderNecaLeads(leads, { onOpen });
+  const rerender = () => renderNecaLeads(leads, { onOpen, onMatch });
   const search = el.querySelector('#necaSearch');
   search.addEventListener('change', () => { filters.q = search.value.trim(); page = 0; rerender(); });
   el.querySelectorAll('.neca-filter').forEach(s => s.addEventListener('change', () => { filters[s.dataset.f] = s.value; page = 0; rerender(); }));
-  el.querySelector('#necaClear')?.addEventListener('click', () => { filters = { q: '', tier: '', state: '', outreach: '', status: '' }; page = 0; rerender(); });
+  el.querySelectorAll('[data-segment]').forEach(b => b.addEventListener('click', () => {
+    const set = JSON.parse(b.dataset.segment);
+    const active = isSeg(set);
+    filters = { ...EMPTY, q: filters.q };
+    if (!active) Object.assign(filters, set);
+    page = 0; rerender();
+  }));
+  el.querySelector('#necaClear')?.addEventListener('click', () => { filters = { ...EMPTY }; page = 0; rerender(); });
   el.querySelector('#necaPrev').addEventListener('click', () => { page--; rerender(); });
   el.querySelector('#necaNext').addEventListener('click', () => { page++; rerender(); });
+  el.querySelector('#necaMatchBtn').addEventListener('click', onMatch);
   el.querySelectorAll('[data-open-neca]').forEach(r => r.addEventListener('click', () => onOpen(r.dataset.openNeca)));
 }
 
 // ─── Detail / edit modal ──────────────────────────────────────────────────
-export function renderNecaLeadDetail(l, { onSave, onDelete }) {
+export function renderNecaLeadDetail(l, { linkedLead, suggestedLead, onSave, onDelete, onAddToPipeline, onOpenLead, onLink, onDismiss, onUnlink }) {
   const overlay = document.getElementById('modalOverlay');
   const box = document.getElementById('modalBox');
   const opt = (v, cur, label) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(label)}</option>`;
-  const contact = (i) => (l.contacts || [])[i] || {};
+  const contact = i => (l.contacts || [])[i] || {};
   const site = l.website && /^https?:\/\//.test(l.website) ? l.website : (l.website ? 'https://' + l.website : '');
+  const breakdown = (l.score_breakdown || []).map(f => ({ ...f }));
+
+  const pipelinePanel = linkedLead ? `
+    <div class="notes-display" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span>Linked to pipeline lead <b>${esc(linkedLead.company)}</b> · stage ${esc(linkedLead.stage)}</span>
+      <span><button class="btn btn-sm" id="necaOpenLead">Open lead</button> <button class="btn btn-sm btn-ghost" id="necaUnlink">Unlink</button></span>
+    </div>` : suggestedLead ? `
+    <div class="notes-display" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span>Possible match in the pipeline: <b>${esc(suggestedLead.company)}</b> (${esc(suggestedLead.stage)}) — ${esc(l.suggested_reason)}</span>
+      <span><button class="btn btn-sm btn-accent" id="necaConfirmLink">Link</button> <button class="btn btn-sm btn-ghost" id="necaDismiss">Not the same</button></span>
+    </div>` : `
+    <div style="font-size:12px;color:var(--text3)">Not in the sales pipeline. Use <b>Add to pipeline</b> when the team starts working this company directly — a copy is created and this record stays on the NECA list.</div>`;
 
   box.innerHTML = `
-    <div class="modal-header"><h3>${esc(l.company)}</h3>
-      <div style="display:flex;gap:6px"><button class="btn btn-sm btn-danger" id="necaDel">Delete</button><button class="btn btn-sm btn-ghost" id="necaClose">✕</button></div></div>
+    <div class="modal-header"><h3>${esc(l.company)} <span style="font-size:10px;font-family:var(--mono);color:var(--text3);margin-left:6px">${esc(l.source)}</span></h3>
+      <div style="display:flex;gap:6px">
+        ${linkedLead ? '' : '<button class="btn btn-sm btn-accent" id="necaAddPipeline">＋ Add to pipeline</button>'}
+        <button class="btn btn-sm btn-danger" id="necaDel">Delete</button><button class="btn btn-sm btn-ghost" id="necaClose">✕</button>
+      </div></div>
     <div class="modal-body">
       <div class="detail-grid">
         <div class="detail-field"><div class="lbl">Address</div><div class="val">${esc([l.address, l.city, l.state, l.zip].filter(Boolean).join(', ')) || '—'}</div></div>
-        <div class="detail-field"><div class="lbl">NECA chapter</div><div class="val">${esc(l.chapter || '—')}${l.division ? '<br><span style="color:var(--text3);font-size:11px">' + esc(l.division) + '</span>' : ''}</div></div>
+        <div class="detail-field"><div class="lbl">NECA chapter(s) · ${l.memberships_count} listing${l.memberships_count === 1 ? '' : 's'}</div><div class="val" style="font-size:12px">${esc(l.chapters || l.chapter || '—')}</div></div>
         <div class="detail-field"><div class="lbl">Website</div><div class="val">${site ? `<a href="${esc(site)}" target="_blank" rel="noopener" style="color:var(--blue)">${esc(l.website)}</a>` : '—'}</div></div>
+        ${l.locations && l.memberships_count > 1 ? `<div class="detail-field" style="grid-column:span 3"><div class="lbl">Locations in the directory</div><div class="val" style="font-size:12px">${esc(l.locations)}</div></div>` : ''}
+      </div>
+
+      <div class="section-divider" style="margin:1rem 0 .6rem">Sales pipeline</div>
+      ${pipelinePanel}
+
+      <div class="section-divider" style="margin:1rem 0 .6rem">Score breakdown <span style="font-weight:400;text-transform:none;letter-spacing:0">— Tony's rubric; edit any factor to override</span></div>
+      <div id="necaScoreSummary" style="font-size:13px;margin-bottom:8px"></div>
+      <div id="necaFactors">
+        ${breakdown.map((f, i) => `<div class="neca-factor" data-i="${i}" style="display:grid;grid-template-columns:minmax(0,1.5fr) 64px 38px 120px minmax(0,2fr);gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)">
+          <span style="font-size:12px">${esc(f.label)}</span>
+          <input type="number" class="nf-earned" min="0" max="${f.max}" value="${f.earned}" style="width:100%">
+          <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">/ ${f.max}</span>
+          <select class="nf-status">${FACTOR_STATUS.map(s => opt(s.id, f.status, s.label)).join('')}</select>
+          <input class="nf-note" value="${esc(f.note)}" style="width:100%;font-size:11px">
+        </div>`).join('') || '<div style="font-size:12px;color:var(--text3)">No breakdown yet — run migration_neca_v2.sql.</div>'}
       </div>
 
       <div class="section-divider" style="margin:1rem 0 .6rem">Qualification</div>
       <div class="form-grid">
         <div class="form-row"><label>Status</label><select id="nl_status">${QUAL_STATUS.map(o => opt(o.id, l.qualification_status, o.label)).join('')}</select></div>
-        <div class="form-row"><label>Tier</label><select id="nl_tier"><option value="">—</option>${['A', 'B', 'C'].map(t => opt(t, l.tier, t === 'A' ? 'A (75–100)' : t === 'B' ? 'B (50–74)' : 'C (< 50)')).join('')}</select></div>
-        <div class="form-row"><label>Score (0–100)</label><input id="nl_score" type="number" min="0" max="100" value="${l.score ?? ''}"></div>
-        <div class="form-row"><label>Employees (estimate)</label><input id="nl_emp" value="${esc(l.employee_estimate)}" placeholder="e.g. 250–500"></div>
+        <div class="form-row"><label>Employee size</label><select id="nl_band"><option value="">—</option>${BANDS.map(b => opt(b, l.employee_band, b)).join('')}</select></div>
+        <div class="form-row"><label>Employees (note)</label><input id="nl_emp" value="${esc(l.employee_estimate)}" placeholder="e.g. ~8,000 (company site)"></div>
+        <div class="form-row"><label>Instagram</label><input id="nl_ig" value="${esc(l.instagram)}" placeholder="@handle or URL"></div>
       </div>
       <div class="form-row"><label>Why pursue (plain English)</label><textarea id="nl_why">${esc(l.score_rationale)}</textarea></div>
       <div class="form-row"><label>Buying signals / why now</label><textarea id="nl_signals" placeholder="Conferences, recruiting, anniversaries, branded apparel…">${esc(l.buying_signals)}</textarea></div>
       <div class="form-grid">
         <div class="form-row"><label>Suggested opening angle</label><input id="nl_angle" value="${esc(l.suggested_angle)}"></div>
-        <div class="form-row"><label>Instagram</label><input id="nl_ig" value="${esc(l.instagram)}" placeholder="@handle or URL"></div>
         <div class="form-row"><label>Website</label><input id="nl_web" value="${esc(l.website)}"></div>
       </div>
+      <div class="form-row"><label>Research sources</label><textarea id="nl_sources" style="min-height:44px" placeholder="URLs or notes on where the information came from">${esc(l.research_sources)}</textarea></div>
 
-      <div class="section-divider" style="margin:1rem 0 .6rem">Contacts</div>
+      <div class="section-divider" style="margin:1rem 0 .6rem">Top executive (CEO / President)</div>
+      <div class="form-grid">
+        <div class="form-row"><input id="nl_exec_name" placeholder="Name" value="${esc(l.top_executive_name)}"></div>
+        <div class="form-row"><input id="nl_exec_title" placeholder="Title" value="${esc(l.top_executive_title)}"></div>
+      </div>
+
+      <div class="section-divider" style="margin:1rem 0 .6rem">Target contacts</div>
       ${CONTACT_ROLES.map((r, i) => `<div style="margin-bottom:12px">
         <div style="font-size:11px;color:var(--text3);font-family:var(--mono);text-transform:uppercase;margin-bottom:4px">${r.label}</div>
         <div class="form-grid">
@@ -166,10 +257,34 @@ export function renderNecaLeadDetail(l, { onSave, onDelete }) {
   overlay.classList.remove('hidden');
 
   const close = () => overlay.classList.add('hidden');
+  const v = id => box.querySelector('#' + id).value.trim();
+  const readBreakdown = () => breakdown.map((f, i) => {
+    const row = box.querySelector(`.neca-factor[data-i="${i}"]`);
+    return { ...f, earned: Math.min(f.max, Math.max(0, parseInt(row.querySelector('.nf-earned').value, 10) || 0)),
+      status: row.querySelector('.nf-status').value, note: row.querySelector('.nf-note').value.trim() };
+  });
+  const refreshSummary = () => {
+    const bd = readBreakdown(); const c = computeNecaScore(bd);
+    const lost = bd.filter(f => f.status !== 'unverified' && f.earned < f.max);
+    const pending = bd.filter(f => f.status === 'unverified');
+    const pendPts = pending.reduce((a, f) => a + f.max, 0);
+    box.querySelector('#necaScoreSummary').innerHTML = c.score == null
+      ? '<span style="color:var(--text3)">No factor evaluated yet.</span>'
+      : `<b style="font-size:15px">${c.score}/100</b> · Tier <b>${c.tier}</b> · based on ${c.evaluated} of ${bd.length} factors.
+         ${lost.length ? `<div style="color:var(--text2);margin-top:4px">Points lost: ${lost.map(f => `<b>${esc(f.label)}</b> −${f.max - f.earned}`).join(' · ')}</div>` : '<div style="color:var(--green);margin-top:4px">No points lost on the evaluated factors.</div>'}
+         ${pending.length ? `<div style="color:var(--text3);margin-top:2px">${pending.length} factors (${pendPts} pts of the rubric) are not researched yet and are not counted for or against this company.</div>` : ''}`;
+  };
+  box.querySelectorAll('#necaFactors input, #necaFactors select').forEach(e => e.addEventListener('input', refreshSummary));
+  refreshSummary();
+
   box.querySelector('#necaClose').addEventListener('click', close);
   box.querySelector('#necaCancel').addEventListener('click', close);
   box.querySelector('#necaDel').addEventListener('click', () => onDelete(l.id));
-  const v = id => box.querySelector('#' + id).value.trim();
+  box.querySelector('#necaAddPipeline')?.addEventListener('click', () => onAddToPipeline(l));
+  box.querySelector('#necaOpenLead')?.addEventListener('click', () => onOpenLead(l.linked_lead_id));
+  box.querySelector('#necaUnlink')?.addEventListener('click', () => onUnlink(l));
+  box.querySelector('#necaConfirmLink')?.addEventListener('click', () => onLink(l));
+  box.querySelector('#necaDismiss')?.addEventListener('click', () => onDismiss(l));
   box.querySelector('#necaSave').addEventListener('click', () => {
     const contacts = CONTACT_ROLES.map((r, i) => {
       const c = { role: r.id };
@@ -177,9 +292,10 @@ export function renderNecaLeadDetail(l, { onSave, onDelete }) {
       return c;
     }).filter(c => c.name || c.email || c.phone || c.linkedin || c.title);
     onSave(l.id, {
-      qualification_status: v('nl_status'), tier: v('nl_tier'), score: v('nl_score'),
-      employee_estimate: v('nl_emp'), score_rationale: v('nl_why'), buying_signals: v('nl_signals'),
-      suggested_angle: v('nl_angle'), instagram: v('nl_ig'), website: v('nl_web'),
+      qualification_status: v('nl_status'), score_breakdown: readBreakdown(), score: l.score, tier: l.tier,
+      employee_band: v('nl_band'), employee_estimate: v('nl_emp'), score_rationale: v('nl_why'), buying_signals: v('nl_signals'),
+      suggested_angle: v('nl_angle'), instagram: v('nl_ig'), website: v('nl_web'), research_sources: v('nl_sources'),
+      top_executive_name: v('nl_exec_name'), top_executive_title: v('nl_exec_title'),
       contacts, outreach_status: v('nl_outreach'), last_contacted_at: v('nl_last'), notes: v('nl_notes'),
     });
   });

@@ -10,7 +10,7 @@ export function renderList(filtered) {
     </tr></thead>
     <tbody>${filtered.map(l => `
       <tr data-open-lead="${l.id}">
-        <td>${l.company  || '—'}</td>
+        <td>${l.company  || '—'}${l.necaLeadId ? ' <span class="badge" style="background:rgba(155,127,232,.2);color:var(--purple)">NECA</span>' : ''}</td>
         <td>${l.contact  || '—'}</td>
         <td>${l.stage}</td>
         <td>${l.disc ? `<span class="badge badge-${l.disc}">${l.disc}</span>` : '—'}</td>

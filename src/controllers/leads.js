@@ -24,6 +24,7 @@ export function rowToLead(r) {
     stage_changed_at: r.stage_changed_at || '',
     created_at:   r.created_at ? r.created_at.slice(0, 10) : '',
     cadenceTotal: r.cadence_total != null ? String(r.cadence_total) : '',
+    necaLeadId:   r.neca_lead_id || null,
   };
 }
 
