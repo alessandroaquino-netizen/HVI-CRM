@@ -46,6 +46,10 @@ import {
   fetchNecaLeads, updateNecaLead, deleteNecaLead, linkNecaToLead, unlinkNecaFromLead, dismissNecaSuggestion, runNecaCrosslink,
 } from './controllers/neca.js';
 import { renderNecaLeads, renderNecaLeadDetail } from './views/necaLeads.js';
+import { fetchInvoices, fetchAliases, saveInvoicePlan, deleteInvoice, invoiceFileUrl, attachOriginalFile } from './controllers/invoices.js';
+import { readInvoiceFile, makeAiExtractor, sha256 } from './invoices/readFile.js';
+import { renderDtcInvoices, renderInvoiceReview, renderInvoiceDetail } from './views/dtcInvoices.js';
+import { productCosts } from './invoices/cost.js';
 
 // ---------- state ----------
 let leads             = [];
@@ -60,6 +64,8 @@ let dtcVariants       = [];
 let dtcPhaseDates     = [];
 let appUsers          = [];
 let necaLeads         = [];
+let dtcInvoices       = [];
+let dtcAliases        = [];
 let necaLoaded        = false;
 let myEmail           = '';
 let currentView = 'pipeline';
@@ -88,7 +94,7 @@ function getFiltered() {
 
 const ALL_VIEWS = [
   'pipeline', 'list', 'disc', 'followups', 'projects', 'leadDashboard', 'projectsDashboard',
-  'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads',
+  'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads', 'dtcInvoices',
 ];
 
 // ---------- render ----------
@@ -104,17 +110,18 @@ function render() {
   if (currentView === 'projectsDashboard') renderProjectsDashboard(projects, projectActivity, projectStageDates);
   if (currentView === 'dtcProducts')       renderDtcProducts(dtcProducts);
   if (currentView === 'dtcCalendar')       renderDtcCalendar(dtcProducts);
-  if (currentView === 'dtcFinancials')     renderDtcFinancials(dtcFinancials, dtcProducts);
+  if (currentView === 'dtcFinancials')     renderDtcFinancials(dtcFinancials, dtcProducts, productCosts(dtcInvoices));
   if (currentView === 'dtcDashboard')      renderDtcDashboard(dtcProducts, dtcFinancials);
   if (currentView === 'dtcMarketing')      renderDtcMarketing(dtcMarketing, dtcProducts);
   if (currentView === 'settings')          renderSettings(appUsers, myEmail, settingsHandlers);
   if (currentView === 'necaLeads')         renderNecaLeads(necaLeads, { onOpen: openNecaDetail, onMatch: handleNecaMatch });
+  if (currentView === 'dtcInvoices')       renderDtcInvoices(dtcInvoices, dtcProducts, { onUpload: handleInvoiceUpload, onOpen: openInvoiceDetail });
 }
 
 async function refresh() {
   // Stage-tracking / DTC tables are newer, optional migrations — don't let a not-yet-migrated
   // Supabase project take down leads/projects loading if they're missing.
-  const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes, dtcProductsRes, dtcFinancialsRes, dtcMarketingRes, dtcVariantsRes, dtcPhaseDatesRes, appUsersRes] = await Promise.all([
+  const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes, dtcProductsRes, dtcFinancialsRes, dtcMarketingRes, dtcVariantsRes, dtcPhaseDatesRes, appUsersRes, invoicesRes, aliasesRes] = await Promise.all([
     fetchLeads(), fetchProjects(),
     fetchStageDates().catch(() => []),
     fetchActivity().catch(() => []),
@@ -125,6 +132,8 @@ async function refresh() {
     fetchDtcVariants().catch(() => []),
     fetchDtcPhaseDates().catch(() => []),
     isAdmin() ? fetchAppUsers().catch(() => []) : Promise.resolve([]),
+    fetchInvoices().catch(() => []),
+    fetchAliases().catch(() => []),
   ]);
   leads = leadsRes; projects = projectsRes;
   projectStageDates = stageDatesRes; projectActivity = activityRes;
@@ -132,6 +141,7 @@ async function refresh() {
   dtcProducts = dtcProductsRes; dtcFinancials = dtcFinancialsRes; dtcMarketing = dtcMarketingRes;
   dtcVariants = dtcVariantsRes; dtcPhaseDates = dtcPhaseDatesRes;
   appUsers = appUsersRes;
+  dtcInvoices = invoicesRes; dtcAliases = aliasesRes;
   render();
 }
 
@@ -145,7 +155,7 @@ function setView(view) {
     projects: 'B2B Projects', leadDashboard: 'Dashboard Lead Management',
     projectsDashboard: 'Dashboard B2B Projects',
     dtcProducts: 'DTC Products', dtcCalendar: 'DTC Calendar', dtcFinancials: 'DTC Financials',
-    dtcDashboard: 'DTC Dashboard', dtcMarketing: 'Marketing Operations',
+    dtcDashboard: 'DTC Dashboard', dtcMarketing: 'Marketing Operations', dtcInvoices: 'DTC Invoices',
     settings: 'User Management', necaLeads: 'NECA Potential Leads',
   };
   document.getElementById('viewTitle').textContent = titles[view] || view;
@@ -155,7 +165,7 @@ function setView(view) {
   document.querySelectorAll('#sidebarNav .nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
   });
-  const nonLeadViews = ['projects', 'leadDashboard', 'projectsDashboard', 'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads'];
+  const nonLeadViews = ['projects', 'leadDashboard', 'projectsDashboard', 'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads', 'dtcInvoices'];
   // Show/hide Add Lead button — not relevant outside the leads views
   const addBtn = document.getElementById('addLeadBtn');
   if (addBtn) addBtn.style.display = nonLeadViews.includes(view) ? 'none' : '';
@@ -318,6 +328,7 @@ function openDtcProductDetail(id) {
     phaseDatesForDtcProduct(dtcPhaseDates, id),
     variantsForProduct(dtcVariants, id),
     {
+      cost:                productCosts(dtcInvoices).get(id) || null,
       onEdit:              openDtcProductEdit,
       onDelete:            handleDtcProductDelete,
       onDuplicate:         handleDuplicateDtcProduct,
@@ -523,6 +534,51 @@ async function openNecaFromLead(necaId) {
   openNecaDetail(necaId);
 }
 
+// ---------- DTC invoices (upload → extract → review → save) ----------
+async function handleInvoiceUpload(files) {
+  const items = [], failed = [];
+  const aiExtract = makeAiExtractor(supabase);
+  for (const file of files) {
+    try { items.push({ file, ...(await readInvoiceFile(file, { aiExtract })) }); }
+    catch (err) { failed.push(`${file.name}: ${err.message}`); }
+  }
+  if (failed.length) alert('Some files could not be read:\n\n' + failed.join('\n'));
+  if (!items.length) return;
+  renderInvoiceReview(items, {
+    products: [...dtcProducts], aliases: dtcAliases, invoices: dtcInvoices, financials: dtcFinancials,
+    onCreateProduct: async (name, manufacturer) => {
+      try {
+        const id = await saveDtcProduct({ name, manufacturer, phase: 'production', category: 'new-design' }, null);
+        await saveDtcFinancial({ dtc_product_id: id, product_name: name, manufacturer }, null);
+        return { id, name, order_ref: '' };
+      } catch (err) { alert('Could not create product: ' + err.message); return null; }
+    },
+    onSave: async ({ plan, parsed, file, hash, method, applyFin, depositPaidDates }) => {
+      await saveInvoicePlan({ plan, parsed, file, hash, method, createdBy: myEmail, products: dtcProducts, depositPaidDates, applyFin });
+      await refresh();
+    },
+    onDone: () => refresh(),
+  });
+}
+
+function openInvoiceDetail(id) {
+  const inv = dtcInvoices.find(i => i.id === id);
+  if (!inv) return;
+  renderInvoiceDetail(inv, dtcProducts, {
+    onDelete: async i => {
+      if (!confirm(`Delete ${i.doc_type} ${i.invoice_number}? Its lines and stored file are removed.`)) return;
+      try { await deleteInvoice(i); closeModal(); await refresh(); } catch (err) { alert('Could not delete: ' + err.message); }
+    },
+    onOpenFile: async i => {
+      try { window.open(await invoiceFileUrl(i.file_path), '_blank', 'noopener'); } catch (err) { alert('Could not open the file: ' + err.message); }
+    },
+    onAttach: async (i, file) => {
+      try { await attachOriginalFile(i, file, await sha256(await file.arrayBuffer())); await refresh(); openInvoiceDetail(i.id); }
+      catch (err) { alert('Could not attach the file: ' + err.message); }
+    },
+  });
+}
+
 // ---------- user management (admin) ----------
 const settingsHandlers = {
   onInvite: () => renderUserForm(null, {
@@ -626,6 +682,11 @@ function wireEvents() {
   document.getElementById('addDtcFinancialBtn').addEventListener('click', openDtcFinancialAdd);
   document.getElementById('searchInput').addEventListener('input', render);
 
+  { // wide modals (invoice review) must not leak their width into the next modal
+    const ov = document.getElementById('modalOverlay');
+    new MutationObserver(() => { if (ov.classList.contains('hidden')) document.getElementById('modalBox').removeAttribute('data-wide'); })
+      .observe(ov, { attributes: true, attributeFilter: ['class'] });
+  }
   document.getElementById('modalOverlay').addEventListener('click', e => {
     if (e.target === document.getElementById('modalOverlay')) closeModal();
   });

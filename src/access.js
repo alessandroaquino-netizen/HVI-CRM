@@ -15,6 +15,7 @@ export const ACCESS_CATALOG = [
     { id: 'dtcProducts',       label: 'DTC Products' },
     { id: 'dtcCalendar',       label: 'DTC Calendar' },
     { id: 'dtcFinancials',     label: 'DTC Financials' },
+    { id: 'dtcInvoices',       label: 'DTC Invoices' },
     { id: 'dtcDashboard',      label: 'DTC Dashboard' },
     { id: 'dtcMarketing',      label: 'Marketing Ops' },
   ]},

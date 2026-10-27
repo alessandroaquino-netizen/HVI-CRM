@@ -1,6 +1,7 @@
 import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { renderListDetail } from './modal.js';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function riskBorder(risk) {
   if (risk === 'overdue')  return 'border-color:rgba(224,85,85,.65)';
@@ -153,7 +154,7 @@ function variantRowHtml(v = {}) {
 }
 
 // ─── Detail modal ─────────────────────────────────────────────────────────
-export function renderDtcProductDetail(p, phaseDates, variants, { onEdit, onDelete, onDuplicate, onPhaseChange, onStartPremarketing, onSaveTimeline, onSaveVariants }) {
+export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, onDelete, onDuplicate, onPhaseChange, onStartPremarketing, onSaveTimeline, onSaveVariants }) {
   const risk   = calcDropRisk(p);
   const weeks  = weeksUntilDrop(p);
   const days   = daysInPhase(p);
@@ -206,6 +207,17 @@ export function renderDtcProductDetail(p, phaseDates, variants, { onEdit, onDele
       <button class="btn btn-sm btn-ghost" id="dtcAddVariantBtn">+ Add row</button>
       <button class="btn btn-sm btn-accent" id="dtcSaveVariantsBtn">Save sizes &amp; SKUs</button>
     </div>`;
+
+  const costSection = cost ? `
+    <div class="section-divider" style="margin-top:1rem">Cost per unit <span style="font-weight:400;text-transform:none;letter-spacing:0">— from ${cost.invoice.doc_type === 'proforma' ? 'pro-forma' : 'final invoice'} ${esc(cost.invoice.invoice_number)}</span></div>
+    <div class="detail-grid" style="margin-top:10px">
+      <div class="detail-field"><div class="lbl">Goods</div><div class="val">$${cost.goods.toLocaleString()}</div></div>
+      <div class="detail-field"><div class="lbl">Photography</div><div class="val">$${cost.photography.toLocaleString()}</div></div>
+      <div class="detail-field"><div class="lbl">Shipping and duty</div><div class="val">$${cost.shipping.toLocaleString()}</div></div>
+      <div class="detail-field"><div class="lbl">Fees and samples</div><div class="val">$${cost.fees.toLocaleString()}</div></div>
+      <div class="detail-field"><div class="lbl">Landed total</div><div class="val">$${cost.total.toLocaleString()}</div></div>
+      <div class="detail-field"><div class="lbl">Cost per unit (${cost.basisUnits} units)</div><div class="val" style="color:var(--accent)">${cost.perUnit != null ? '$' + cost.perUnit.toFixed(2) : '—'}</div></div>
+    </div>` : '';
 
   const samplingSection = p.phase === 'sampling' || ['production','warehouse'].includes(p.phase) ? `
     <div class="section-divider" style="margin-top:1rem">Sampling Details</div>
@@ -263,6 +275,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { onEdit, onDele
         ${p.tech_pack_link?`<div class="detail-field" style="grid-column:span 2"><div class="lbl">Tech Pack</div><div class="val"><a href="${p.tech_pack_link}" target="_blank" style="color:var(--blue)">${p.tech_pack_link}</a></div></div>`:''}
       </div>
       ${timelineSection}
+      ${costSection}
       ${samplingSection}
       ${warehouseSection}
       ${variantsSection}

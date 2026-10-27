@@ -2,7 +2,7 @@ import { MANUFACTURERS } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { renderListDetail } from './modal.js';
 
-export function renderDtcFinancials(financials, products) {
+export function renderDtcFinancials(financials, products, costs = new Map()) {
   const el = document.getElementById('dtcFinancialsView');
   if (!el) return;
 
@@ -54,7 +54,7 @@ export function renderDtcFinancials(financials, products) {
         <div class="section-divider" style="margin-bottom:.75rem">${mfr.label}</div>
         <table class="list-table">
           <thead><tr>
-            <th>Product</th><th>Order #</th><th>Invoice #</th>
+            <th>Product</th><th>Units</th><th>Cost / unit</th><th>Order #</th><th>Invoice #</th>
             <th>Deposit</th><th>Dep. paid</th>
             <th>Final</th><th>Final paid</th>
             <th>Photographer</th><th>Photo paid</th>
@@ -64,6 +64,7 @@ export function renderDtcFinancials(financials, products) {
           <tbody>
             ${mfr.rows.map(f => `<tr>
               <td>${f.product_name||'—'}</td>
+              ${(() => { const c = costs.get(f.dtc_product_id); return c ? `<td style="font-family:var(--mono);font-size:12px">${c.basisUnits || '—'}</td><td style="font-family:var(--mono);font-size:12px" title="Goods $${c.goodsPerUnit ?? '—'} + photography, shipping and fees, from invoice ${c.invoice.invoice_number}">${c.perUnit != null ? '$' + c.perUnit.toFixed(2) : '—'}</td>` : '<td style="color:var(--text3)">—</td><td style="color:var(--text3)">—</td>'; })()}
               <td style="font-family:var(--mono);font-size:11px">${f.order_number||'—'}</td>
               <td style="font-family:var(--mono);font-size:11px">${f.invoice_number||'—'}</td>
               <td>${f.deposit_amount?'$'+Number(f.deposit_amount).toLocaleString():'—'}</td>
