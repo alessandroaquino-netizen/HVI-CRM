@@ -1,4 +1,5 @@
 import { computeNecaScore } from '../controllers/neca.js';
+import { LEAD_SOURCES } from '../constants.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PAGE_SIZE = 100;
@@ -67,12 +68,12 @@ function sorted(list) {
     ((b.score ?? -1) - (a.score ?? -1)) || a.company.localeCompare(b.company));
 }
 
-export function renderNecaLeads(leads, { onOpen, onMatch }) {
+export function renderNecaLeads(leads, { onOpen, onMatch, onAdd }) {
   const el = document.getElementById('necaLeadsView');
   if (!el) return;
   const count = t => leads.filter(l => l.tier === t).length;
   const states = [...new Set(leads.map(l => l.state).filter(Boolean))].sort();
-  const sources = [...new Set(leads.map(l => l.source).filter(Boolean))].sort();
+  const sources = [...new Set([...LEAD_SOURCES, ...leads.map(l => l.source).filter(Boolean)])];
   const filtered = sorted(leads.filter(matches));
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   if (page >= pages) page = pages - 1;
@@ -92,10 +93,11 @@ export function renderNecaLeads(leads, { onOpen, onMatch }) {
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1rem">
       <div style="font-size:12px;color:var(--text3);max-width:760px">
-        Prospect list from the NECA member directory, kept separate from the main Leads. A company is only copied to the pipeline when you click <b>Add to pipeline</b> —
+        Companies worth pursuing, from the NECA member directory and from other sources (unions, referrals, events), kept separate from the main Leads. A company is only copied to the pipeline when you click <b>Add to pipeline</b> —
         it always stays on this list. Scores marked <b>prelim</b> use directory data only; open a company to see exactly which rubric factors were scored, estimated or not yet researched.
       </div>
-      <button class="btn btn-sm" id="necaMatchBtn" title="Tag companies that already exist in the pipeline">↔ Match with pipeline${pendingSugg ? ` (${pendingSugg} to review)` : ''}</button>
+      <div style="display:flex;gap:8px;flex-shrink:0"><button class="btn btn-sm btn-accent" id="necaAddBtn">＋ Add potential lead</button>
+      <button class="btn btn-sm" id="necaMatchBtn" title="Tag companies that already exist in the pipeline">↔ Match with pipeline${pendingSugg ? ` (${pendingSugg} to review)` : ''}</button></div>
     </div>
     <div class="proj-summary" style="grid-template-columns:repeat(6,1fr);margin-bottom:1.2rem">
       ${kpi('Total companies', leads.length)}
@@ -122,14 +124,15 @@ export function renderNecaLeads(leads, { onOpen, onMatch }) {
       ${sel('state', filters.state, states.map(s => ({ id: s, label: s })), 'All states')}
       ${sel('outreach', filters.outreach, NECA_OUTREACH, 'All outreach')}
       ${sel('status', filters.status, QUAL_STATUS, 'All qualification')}
-      ${sources.length > 1 ? sel('source', filters.source, sources.map(s => ({ id: s, label: s })), 'All sources') : ''}
+      ${sel('source', filters.source, sources.map(s => ({ id: s, label: s })), 'All sources')}
       ${Object.entries(filters).some(([, v]) => v) ? '<button class="btn btn-ghost btn-sm" id="necaClear">✕ Clear</button>' : ''}
       <span style="margin-left:auto;font-size:11px;color:var(--text3)">${filtered.length} of ${leads.length}</span>
     </div>
     <table class="list-table">
-      <thead><tr><th>Company</th><th>Location</th><th>Tier / score</th><th>Size</th><th>Executive</th><th>Pipeline</th><th>Outreach</th></tr></thead>
+      <thead><tr><th>Company</th><th>Source</th><th>Location</th><th>Tier / score</th><th>Size</th><th>Executive</th><th>Pipeline</th><th>Outreach</th></tr></thead>
       <tbody>${slice.map(l => `<tr data-open-neca="${l.id}" style="cursor:pointer">
         <td><div style="font-weight:500">${esc(l.company)}${l.memberships_count > 1 ? ` <span style="font-size:10px;color:var(--text3);font-family:var(--mono)">×${l.memberships_count}</span>` : ''}</div>${l.website ? `<div style="font-size:11px;color:var(--text3)">${esc(l.website.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</div>` : ''}</td>
+        <td style="font-size:11px;color:var(--text3)">${esc(l.source)}</td>
         <td style="font-size:12px;color:var(--text2)">${esc([l.city, l.state].filter(Boolean).join(', '))}</td>
         <td>${l.tier ? `<span class="badge" style="${TIER_STYLE[l.tier]}">${l.tier}</span>` : '<span style="color:var(--text3)">—</span>'}
             <span style="font-family:var(--mono);font-size:12px;margin-left:4px">${l.score ?? ''}</span>
@@ -138,7 +141,7 @@ export function renderNecaLeads(leads, { onOpen, onMatch }) {
         <td style="font-size:12px;color:var(--text2)">${l.top_executive_name ? `${esc(l.top_executive_name)}<div style="font-size:10px;color:var(--text3)">${esc(l.top_executive_title)}</div>` : '<span style="color:var(--text3)">—</span>'}</td>
         <td>${l.linked_lead_id ? '<span class="badge" style="background:rgba(155,127,232,.2);color:var(--purple)">In pipeline</span>' : (l.suggested_lead_id ? '<span style="font-size:10px;color:var(--accent)">Possible match</span>' : '<span style="color:var(--text3)">—</span>')}</td>
         <td style="font-size:12px;color:${l.outreach_status === 'not_contacted' ? 'var(--text3)' : 'var(--blue)'}">${esc(NECA_OUTREACH.find(o => o.id === l.outreach_status)?.label || '')}</td>
-      </tr>`).join('') || '<tr><td colspan="7" style="color:var(--text3)">No companies match.</td></tr>'}</tbody>
+      </tr>`).join('') || '<tr><td colspan="8" style="color:var(--text3)">No companies match.</td></tr>'}</tbody>
     </table>
     <div style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:1rem;font-size:12px;color:var(--text3)">
       <button class="btn btn-sm btn-ghost" id="necaPrev" ${page === 0 ? 'disabled' : ''}>← Prev</button>
@@ -146,7 +149,7 @@ export function renderNecaLeads(leads, { onOpen, onMatch }) {
       <button class="btn btn-sm btn-ghost" id="necaNext" ${page >= pages - 1 ? 'disabled' : ''}>Next →</button>
     </div>`;
 
-  const rerender = () => renderNecaLeads(leads, { onOpen, onMatch });
+  const rerender = () => renderNecaLeads(leads, { onOpen, onMatch, onAdd });
   const search = el.querySelector('#necaSearch');
   search.addEventListener('change', () => { filters.q = search.value.trim(); page = 0; rerender(); });
   el.querySelectorAll('.neca-filter').forEach(s => s.addEventListener('change', () => { filters[s.dataset.f] = s.value; page = 0; rerender(); }));
@@ -161,11 +164,12 @@ export function renderNecaLeads(leads, { onOpen, onMatch }) {
   el.querySelector('#necaPrev').addEventListener('click', () => { page--; rerender(); });
   el.querySelector('#necaNext').addEventListener('click', () => { page++; rerender(); });
   el.querySelector('#necaMatchBtn').addEventListener('click', onMatch);
+  el.querySelector('#necaAddBtn').addEventListener('click', onAdd);
   el.querySelectorAll('[data-open-neca]').forEach(r => r.addEventListener('click', () => onOpen(r.dataset.openNeca)));
 }
 
 // ─── Detail / edit modal ──────────────────────────────────────────────────
-export function renderNecaLeadDetail(l, { linkedLead, suggestedLead, onSave, onDelete, onAddToPipeline, onOpenLead, onLink, onDismiss, onUnlink }) {
+export function renderNecaLeadDetail(l, { linkedLead, suggestedLead, onSave, onDelete, onAddToPipeline, onOpenLead, onLink, onDismiss, onUnlink, onDraft }) {
   const overlay = document.getElementById('modalOverlay');
   const box = document.getElementById('modalBox');
   const opt = (v, cur, label) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(label)}</option>`;
@@ -187,6 +191,7 @@ export function renderNecaLeadDetail(l, { linkedLead, suggestedLead, onSave, onD
   box.innerHTML = `
     <div class="modal-header"><h3>${esc(l.company)} <span style="font-size:10px;font-family:var(--mono);color:var(--text3);margin-left:6px">${esc(l.source)}</span></h3>
       <div style="display:flex;gap:6px">
+        <button class="btn btn-sm btn-ghost" id="necaDraft">✉ Draft email</button>
         ${linkedLead ? '' : '<button class="btn btn-sm btn-accent" id="necaAddPipeline">＋ Add to pipeline</button>'}
         <button class="btn btn-sm btn-danger" id="necaDel">Delete</button><button class="btn btn-sm btn-ghost" id="necaClose">✕</button>
       </div></div>
@@ -215,6 +220,7 @@ export function renderNecaLeadDetail(l, { linkedLead, suggestedLead, onSave, onD
 
       <div class="section-divider" style="margin:1rem 0 .6rem">Qualification</div>
       <div class="form-grid">
+        <div class="form-row"><label>Source</label><select id="nl_source">${[...new Set([...LEAD_SOURCES, l.source])].filter(Boolean).map(s => opt(s, l.source, s)).join('')}</select></div>
         <div class="form-row"><label>Status</label><select id="nl_status">${QUAL_STATUS.map(o => opt(o.id, l.qualification_status, o.label)).join('')}</select></div>
         <div class="form-row"><label>Employee size</label><select id="nl_band"><option value="">—</option>${BANDS.map(b => opt(b, l.employee_band, b)).join('')}</select></div>
         <div class="form-row"><label>Employees (note)</label><input id="nl_emp" value="${esc(l.employee_estimate)}" placeholder="e.g. ~8,000 (company site)"></div>
@@ -281,6 +287,7 @@ export function renderNecaLeadDetail(l, { linkedLead, suggestedLead, onSave, onD
   box.querySelector('#necaCancel').addEventListener('click', close);
   box.querySelector('#necaDel').addEventListener('click', () => onDelete(l.id));
   box.querySelector('#necaAddPipeline')?.addEventListener('click', () => onAddToPipeline(l));
+  box.querySelector('#necaDraft').addEventListener('click', () => onDraft(l));
   box.querySelector('#necaOpenLead')?.addEventListener('click', () => onOpenLead(l.linked_lead_id));
   box.querySelector('#necaUnlink')?.addEventListener('click', () => onUnlink(l));
   box.querySelector('#necaConfirmLink')?.addEventListener('click', () => onLink(l));
@@ -292,11 +299,47 @@ export function renderNecaLeadDetail(l, { linkedLead, suggestedLead, onSave, onD
       return c;
     }).filter(c => c.name || c.email || c.phone || c.linkedin || c.title);
     onSave(l.id, {
-      qualification_status: v('nl_status'), score_breakdown: readBreakdown(), score: l.score, tier: l.tier,
+      source: v('nl_source'), qualification_status: v('nl_status'), score_breakdown: readBreakdown(), score: l.score, tier: l.tier,
       employee_band: v('nl_band'), employee_estimate: v('nl_emp'), score_rationale: v('nl_why'), buying_signals: v('nl_signals'),
       suggested_angle: v('nl_angle'), instagram: v('nl_ig'), website: v('nl_web'), research_sources: v('nl_sources'),
       top_executive_name: v('nl_exec_name'), top_executive_title: v('nl_exec_title'),
       contacts, outreach_status: v('nl_outreach'), last_contacted_at: v('nl_last'), notes: v('nl_notes'),
     });
+  });
+}
+
+// ─── Add a potential lead by hand (any source) ────────────────────────────
+export function renderAddPotentialLead({ onSave }) {
+  const overlay = document.getElementById('modalOverlay');
+  const box = document.getElementById('modalBox');
+  box.innerHTML = `
+    <div class="modal-header"><h3>Add potential lead</h3><button class="btn btn-sm btn-ghost" id="apClose">✕</button></div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">It joins the same list and is scored with the same rubric. Open it afterwards to rate the factors you know.</div>
+      <div class="form-grid">
+        <div class="form-row"><label>Company *</label><input id="ap_company"></div>
+        <div class="form-row"><label>Source *</label><select id="ap_source">${LEAD_SOURCES.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select></div>
+        <div class="form-row"><label>Website</label><input id="ap_web" placeholder="www.example.com"></div>
+        <div class="form-row"><label>City</label><input id="ap_city"></div>
+        <div class="form-row"><label>State</label><input id="ap_state" placeholder="CA"></div>
+        <div class="form-row"><label>Contact name</label><input id="ap_cname"></div>
+        <div class="form-row"><label>Contact title</label><input id="ap_ctitle"></div>
+        <div class="form-row"><label>Contact email</label><input id="ap_cemail"></div>
+        <div class="form-row"><label>Contact phone</label><input id="ap_cphone"></div>
+      </div>
+      <div class="form-row"><label>Notes</label><textarea id="ap_notes" placeholder="How you found them, what they need…"></textarea></div>
+      <div class="login-error" id="apErr"></div>
+    </div>
+    <div class="modal-footer"><button class="btn" id="apCancel">Cancel</button><button class="btn btn-accent" id="apSave">Add lead</button></div>`;
+  overlay.classList.remove('hidden');
+  const v = id => box.querySelector('#' + id).value.trim();
+  const close = () => overlay.classList.add('hidden');
+  box.querySelector('#apClose').addEventListener('click', close);
+  box.querySelector('#apCancel').addEventListener('click', close);
+  box.querySelector('#apSave').addEventListener('click', async () => {
+    if (!v('ap_company')) { box.querySelector('#apErr').textContent = 'Company is required.'; return; }
+    await onSave({ company: v('ap_company'), source: v('ap_source'), website: v('ap_web'), city: v('ap_city'), state: v('ap_state'),
+      contactName: v('ap_cname'), contactTitle: v('ap_ctitle'), contactEmail: v('ap_cemail'), contactPhone: v('ap_cphone'), notes: v('ap_notes') },
+      msg => { box.querySelector('#apErr').textContent = msg; });
   });
 }

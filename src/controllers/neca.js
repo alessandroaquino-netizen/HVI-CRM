@@ -73,6 +73,7 @@ export async function updateNecaLead(id, p) {
     tier: calc ? (calc.tier || null) : (p.tier || null),
     score: calc ? calc.score : (p.score !== '' && p.score != null ? parseInt(p.score, 10) : null),
     ...(calc ? { score_breakdown: p.score_breakdown, factors_evaluated: calc.evaluated } : {}),
+    source: p.source || 'NECA',
     employee_band: p.employee_band || null,
     top_executive_name: p.top_executive_name || null,
     top_executive_title: p.top_executive_title || null,
@@ -118,6 +119,32 @@ export async function runNecaCrosslink() {
   const { data, error } = await supabase.rpc('neca_crosslink');
   if (error) throw error;
   return (data && data[0]) || { auto_linked: 0, suggestions: 0 };
+}
+
+export async function markNecaContacted(id) {
+  const today = new Date().toISOString().slice(0, 10);
+  const { error } = await supabase.from('neca_leads').update({ outreach_status: 'contacted', last_contacted_at: today }).eq('id', id).eq('outreach_status', 'not_contacted');
+  if (error) throw error;
+}
+
+// Same ten factors as neca_prelim_breakdown() in migration_neca_v2.sql, all "not researched": a manually added
+// lead is scored by hand (or by research) instead of by the NECA directory heuristics.
+export function emptyBreakdown() {
+  const f = (key, label, max) => ({ key, label, max, earned: 0, status: 'unverified', note: 'Not yet researched.' });
+  return [f('fit', 'Strong electrical / high-voltage fit', 20), f('employees', '100+ employees', 15), f('locations', 'Multiple crews / locations', 10),
+    f('culture', 'Visible company culture / employee pride', 10), f('events', 'Attends conferences / events', 10), f('apparel', 'Already uses branded apparel', 15),
+    f('recruiting', 'Recruiting / employer-branding activity', 5), f('marketing', 'Has a marketing department', 5),
+    f('hvi_connection', 'Known HVI connection / mutual relationship', 5), f('quanta', 'Quanta / strategic ecosystem connection', 5)];
+}
+
+export async function createPotentialLead(p) {
+  const contacts = p.contactName || p.contactEmail ? [{ role: 'buyer', name: p.contactName || '', title: p.contactTitle || '', email: p.contactEmail || '', phone: p.contactPhone || '' }] : [];
+  const { data, error } = await supabase.from('neca_leads').insert({
+    company: p.company, source: p.source || 'Other', website: p.website || null, city: p.city || null, state: p.state || null,
+    contacts, notes: p.notes || null, qualification_status: 'unqualified', score_breakdown: emptyBreakdown(), outreach_status: 'not_contacted',
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
 }
 
 export async function deleteNecaLead(id) {

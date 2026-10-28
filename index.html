@@ -38,7 +38,12 @@
       <div class="app-name">B2B Pipeline</div>
     </div>
     <nav id="sidebarNav">
-      <div class="nav-section-label">Sales</div>
+      <div class="nav-section-label">Overview</div>
+      <div class="nav-item" data-view="summary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Action Summary
+      </div>
+      <div class="nav-section-label" style="margin-top:.75rem">Sales</div>
       <div class="nav-item active" data-view="pipeline">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="10" rx="1"/><rect x="14" y="17" width="7" height="4" rx="1"/></svg>
         Pipeline
@@ -58,7 +63,7 @@
       </div>
       <div class="nav-item" data-view="necaLeads">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-        NECA Potential Leads
+        Potential Leads
       </div>
       <div class="nav-section-label" style="margin-top:.75rem">Operations</div>
       <div class="nav-item" data-view="projects">
@@ -162,6 +167,7 @@
       <div id="dtcDashboardView" class="hidden"></div>
       <div id="dtcMarketingView" class="hidden"></div>
       <div id="necaLeadsView" class="hidden"></div>
+      <div id="summaryView" class="hidden"></div>
       <div id="dtcInvoicesView" class="hidden"></div>
       <div id="settingsView" class="hidden"></div>
     </div>

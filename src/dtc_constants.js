@@ -219,3 +219,30 @@ export function weeksUntilDrop(product) {
   if (!product.drop_date) return null;
   return Math.round((new Date(product.drop_date) - new Date()) / (7 * 24 * 3600 * 1000));
 }
+
+// ─── Manufacturer blackout periods (Oct 21 team sync) ─────────────────────
+// Bing Bing closes for the whole of February (Lunar New Year). Q1 and February-conference orders must be
+// finalized by Nov 1; anything still open ships after April 15. Edit this list when dates change.
+export const MANUFACTURER_BLACKOUTS = [
+  { id: 'bb-cutoff-2026', manufacturer: 'bing-bing', kind: 'cutoff',  label: 'Order cutoff for Q1 / February conference', start: '2026-11-01', end: '2026-11-01',
+    note: 'Orders needed for Q1 and the February conference must be finalized by Nov 1.' },
+  { id: 'bb-closure-2027', manufacturer: 'bing-bing', kind: 'closure', label: 'Lunar New Year closure', start: '2027-02-01', end: '2027-02-28',
+    note: 'Bing Bing (China) is closed for all of February: no production.' },
+  { id: 'bb-delay-2027', manufacturer: 'bing-bing', kind: 'delay',   label: 'Shipments delayed until Apr 15', start: '2027-03-01', end: '2027-04-14',
+    note: 'Orders still open at the closure ship from April 15.' },
+];
+
+export function blackoutsOn(dateStr) { return MANUFACTURER_BLACKOUTS.filter(b => dateStr >= b.start && dateStr <= b.end); }
+
+// Plain-language warnings when a product's production or shipping window overlaps a closure or delay.
+export function blackoutWarnings(product) {
+  if (!product.manufacturer || product.phase === 'warehouse') return [];
+  const out = [];
+  const windows = phaseDatesForProduct(product)?.filter(w => ['Production', 'Shipping'].includes(w.label)) || [];
+  for (const b of MANUFACTURER_BLACKOUTS.filter(x => x.manufacturer === product.manufacturer && (x.kind === 'closure' || x.kind === 'delay'))) {
+    const hit = windows.find(w => w.start <= b.end && w.end >= b.start);
+    const dropInside = product.drop_date && product.drop_date >= b.start && product.drop_date <= b.end;
+    if (hit || dropInside) out.push(`${b.label} (${b.start} to ${b.end}) overlaps this product's ${hit ? hit.label.toLowerCase() + ' window' : 'drop date'}. ${b.note}`);
+  }
+  return out;
+}

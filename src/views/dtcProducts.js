@@ -1,4 +1,4 @@
-import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct } from '../dtc_constants.js';
+import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, blackoutWarnings, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { renderListDetail } from './modal.js';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -99,6 +99,7 @@ export function renderDtcProducts(products) {
         <option value="">All manufacturers</option>${MANUFACTURERS.map(m=>`<option value="${m.id}" ${activeFilters.manufacturer===m.id?'selected':''}>${m.label}</option>`).join('')}
       </select>
       ${Object.values(activeFilters).some(Boolean)?`<button id="clearDtcFilters" class="btn btn-ghost btn-sm">✕ Clear</button>`:''}
+      <button class="btn btn-sm btn-ghost" id="importSkuBtn" title="Import sizes and quantities from a supplier SKU sheet">⬆ Import SKU sheet</button>
       <span style="margin-left:auto;font-size:11px;color:var(--text3)">${filtered.length} of ${products.length}</span>
     </div>
 
@@ -260,6 +261,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
           :'<div style="font-size:12px;color:var(--text3)">No drop date</div>'}
         </div>
       </div>
+      ${blackoutWarnings(p).map(w => `<div class="notes-display" style="border-left:3px solid var(--red);margin-bottom:10px;font-size:12px">⛔ ${esc(w)}</div>`).join('')}
       <div class="section-divider">Move to phase</div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;margin:10px 0 1.5rem">${phasePills}</div>
       <div class="section-divider">Details</div>

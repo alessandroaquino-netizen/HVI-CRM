@@ -1,6 +1,6 @@
 import { supabase } from './supabase.js';
 import { signInWithGoogle, signOut, authorizeSignedInUser, onAuthChange } from './auth.js';
-import { setMyAccess, isAdmin, canView, firstAllowedView } from './access.js';
+import { setMyAccess, getMyAccess, isAdmin, canView, firstAllowedView } from './access.js';
 import {
   fetchAppUsers, inviteUser, updateAppUser, setAppUserStatus, deleteAppUser,
   captureInviteTokenFromUrl, getPendingInviteToken,
@@ -22,7 +22,7 @@ import {
   fetchDtcProducts, saveDtcProduct, updateDtcPhase, deleteDtcProduct, startPremarketing,
   fetchDtcFinancials, saveDtcFinancial, deleteDtcFinancial,
   fetchDtcMarketing, subscribeToDtc,
-  fetchDtcVariants, saveDtcVariants, variantsForProduct, copyDtcVariants,
+  fetchDtcVariants, saveDtcVariants, variantsForProduct, copyDtcVariants, upsertVariantsBySku,
 } from './controllers/dtc.js';
 import {
   fetchDtcPhaseDates, saveDtcPhaseDates, phaseDatesForDtcProduct, subscribeToDtcPhaseDates,
@@ -44,8 +44,12 @@ import { renderDtcMarketing } from './views/dtcMarketing.js';
 import { renderSettings, renderUserForm, renderInviteLink } from './views/settings.js';
 import {
   fetchNecaLeads, updateNecaLead, deleteNecaLead, linkNecaToLead, unlinkNecaFromLead, dismissNecaSuggestion, runNecaCrosslink,
+  createPotentialLead, markNecaContacted,
 } from './controllers/neca.js';
-import { renderNecaLeads, renderNecaLeadDetail } from './views/necaLeads.js';
+import { renderNecaLeads, renderNecaLeadDetail, renderAddPotentialLead } from './views/necaLeads.js';
+import { renderDraftModal } from './views/draft.js';
+import { renderSummary } from './views/summary.js';
+import { renderSkuImport } from './views/skuImport.js';
 import { fetchInvoices, fetchAliases, saveInvoicePlan, deleteInvoice, invoiceFileUrl, attachOriginalFile } from './controllers/invoices.js';
 import { readInvoiceFile, makeAiExtractor, sha256 } from './invoices/readFile.js';
 import { renderDtcInvoices, renderInvoiceReview, renderInvoiceDetail } from './views/dtcInvoices.js';
@@ -94,7 +98,7 @@ function getFiltered() {
 
 const ALL_VIEWS = [
   'pipeline', 'list', 'disc', 'followups', 'projects', 'leadDashboard', 'projectsDashboard',
-  'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads', 'dtcInvoices',
+  'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads', 'dtcInvoices', 'summary',
 ];
 
 // ---------- render ----------
@@ -114,7 +118,8 @@ function render() {
   if (currentView === 'dtcDashboard')      renderDtcDashboard(dtcProducts, dtcFinancials);
   if (currentView === 'dtcMarketing')      renderDtcMarketing(dtcMarketing, dtcProducts);
   if (currentView === 'settings')          renderSettings(appUsers, myEmail, settingsHandlers);
-  if (currentView === 'necaLeads')         renderNecaLeads(necaLeads, { onOpen: openNecaDetail, onMatch: handleNecaMatch });
+  if (currentView === 'necaLeads')         renderNecaLeads(necaLeads, { onOpen: openNecaDetail, onMatch: handleNecaMatch, onAdd: openAddPotentialLead });
+  if (currentView === 'summary')           renderSummary({ leads, necaLeads, products: dtcProducts, financials: dtcFinancials, invoices: dtcInvoices, can: canView });
   if (currentView === 'dtcInvoices')       renderDtcInvoices(dtcInvoices, dtcProducts, { onUpload: handleInvoiceUpload, onOpen: openInvoiceDetail });
 }
 
@@ -149,14 +154,14 @@ async function refresh() {
 function setView(view) {
   if (!canView(view)) return;
   currentView = view;
-  if (view === 'necaLeads' && !necaLoaded) loadNecaLeads();
+  if ((view === 'necaLeads' || view === 'summary') && canView('necaLeads') && !necaLoaded) loadNecaLeads();
   const titles = {
     pipeline: 'Pipeline', list: 'All Leads', disc: 'DISC Guide', followups: 'Follow-ups',
     projects: 'B2B Projects', leadDashboard: 'Dashboard Lead Management',
     projectsDashboard: 'Dashboard B2B Projects',
     dtcProducts: 'DTC Products', dtcCalendar: 'DTC Calendar', dtcFinancials: 'DTC Financials',
-    dtcDashboard: 'DTC Dashboard', dtcMarketing: 'Marketing Operations', dtcInvoices: 'DTC Invoices',
-    settings: 'User Management', necaLeads: 'NECA Potential Leads',
+    dtcDashboard: 'DTC Dashboard', dtcMarketing: 'Marketing Operations', dtcInvoices: 'DTC Invoices', summary: 'Action Summary',
+    settings: 'User Management', necaLeads: 'Potential Leads',
   };
   document.getElementById('viewTitle').textContent = titles[view] || view;
   ALL_VIEWS.forEach(v => {
@@ -165,7 +170,7 @@ function setView(view) {
   document.querySelectorAll('#sidebarNav .nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
   });
-  const nonLeadViews = ['projects', 'leadDashboard', 'projectsDashboard', 'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads', 'dtcInvoices'];
+  const nonLeadViews = ['projects', 'leadDashboard', 'projectsDashboard', 'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads', 'dtcInvoices', 'summary'];
   // Show/hide Add Lead button — not relevant outside the leads views
   const addBtn = document.getElementById('addLeadBtn');
   if (addBtn) addBtn.style.display = nonLeadViews.includes(view) ? 'none' : '';
@@ -191,6 +196,7 @@ function openDetail(id) {
     onStageChange: handleStageChange,
     onAddComment:  handleAddLeadComment,
     onDuplicate:   handleDuplicateLead,
+    onDraft:       openLeadDraft,
   });
 }
 
@@ -475,6 +481,7 @@ function openNecaDetail(id) {
       catch (err) { alert('Could not delete: ' + err.message); }
     },
     onAddToPipeline: handleAddNecaToPipeline,
+    onDraft: openNecaDraft,
     onOpenLead: leadId => { closeModal(); setView('pipeline'); openDetail(leadId); },
     onLink: async n => {
       try { await linkNecaToLead(n.id, n.suggested_lead_id); await after(); openNecaDetail(n.id); }
@@ -507,7 +514,7 @@ async function handleAddNecaToPipeline(n) {
   try {
     const newId = await saveLead({
       company: n.company, contact: c.name || '', title: c.title || '', phone: c.phone || '', email: c.email || '',
-      segment: 'High voltage contractor', disc: '', stage: 'Prospect',
+      segment: 'High voltage contractor', source: n.source || 'NECA', disc: '', stage: 'Prospect',
       est: '', units: '', proposalDate: '', followupDate: '', followupNote: '', notes, collected: '', cadenceTotal: '',
     }, null);
     await linkNecaToLead(n.id, newId);
@@ -516,6 +523,41 @@ async function handleAddNecaToPipeline(n) {
     await loadNecaLeads();
     openNecaDetail(n.id);
   } catch (err) { alert('Could not add to pipeline: ' + err.message); }
+}
+
+// ---------- outreach drafts: text only, copied by hand — no email integration ----------
+function senderName() {
+  const a = getMyAccess();
+  const n = (a?.full_name || '').trim();
+  return n ? n.split(/\s+/)[0] : '';
+}
+const firstSentence = t => String(t || '').split(/(?<=[.!?])\s/)[0].slice(0, 160);
+
+function openNecaDraft(l) {
+  const people = [
+    ...(l.top_executive_name ? [{ name: l.top_executive_name, title: l.top_executive_title }] : []),
+    ...(l.contacts || []).map(c => ({ name: c.name, title: c.title })),
+  ];
+  renderDraftModal({
+    company: l.company, contacts: people, angle: l.suggested_angle, signal: firstSentence(l.buying_signals),
+    executiveName: l.top_executive_name, sender: senderName(),
+    onMarkContacted: async () => { await markNecaContacted(l.id); await loadNecaLeads(); },
+  });
+}
+
+function openLeadDraft(lead) {
+  renderDraftModal({
+    company: lead.company, contacts: [{ name: lead.contact, title: lead.title }], angle: '', signal: '', executiveName: '', sender: senderName(),
+  });
+}
+
+function openAddPotentialLead() {
+  renderAddPotentialLead({
+    onSave: async (data, showError) => {
+      try { const id = await createPotentialLead(data); closeModal(); await loadNecaLeads(); openNecaDetail(id); }
+      catch (err) { showError('Could not add: ' + err.message); }
+    },
+  });
 }
 
 async function handleNecaMatch() {
@@ -532,6 +574,29 @@ async function openNecaFromLead(necaId) {
   if (!necaLoaded) await loadNecaLeads();
   setView('necaLeads');
   openNecaDetail(necaId);
+}
+
+// ---------- SKU sheet import (sizes and quantities per product) ----------
+function openSkuImport() {
+  renderSkuImport({
+    products: [...dtcProducts],
+    onSave: async items => {
+      let created = 0, added = 0, updated = 0;
+      for (const it of items) {
+        let id = it.productId;
+        if (!id) {
+          id = await saveDtcProduct({ name: it.productName, product_type: it.type, category: 'restock', phase: 'warehouse', manufacturer: 'print-theory',
+            units_ordered: it.variants.reduce((a, v) => a + (v.units_ordered || 0), 0) }, null);
+          await saveDtcFinancial({ dtc_product_id: id, product_name: it.productName, manufacturer: 'print-theory' }, null);
+          created++;
+        }
+        const r = await upsertVariantsBySku(id, it.variants);
+        added += r.added; updated += r.updated;
+      }
+      await refresh();
+      return `Done: ${items.length} products (${created} created), ${added} sizes added, ${updated} updated.`;
+    },
+  });
 }
 
 // ---------- DTC invoices (upload → extract → review → save) ----------
@@ -693,6 +758,9 @@ function wireEvents() {
 
   // Delegated clicks for lead cards, project cards, backlog "Start project", and DTC records
   document.addEventListener('click', e => {
+    if (e.target.closest('#importSkuBtn')) { openSkuImport(); return; }
+    const goEl = e.target.closest('[data-go-view]');
+    if (goEl) { setView(goEl.dataset.goView); return; }
     const necaEl = e.target.closest('[data-open-neca-lead]');
     if (necaEl) { openNecaFromLead(necaEl.dataset.openNecaLead); return; }
     const startEl = e.target.closest('[data-start-project]');

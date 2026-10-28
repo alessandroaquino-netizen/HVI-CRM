@@ -25,6 +25,7 @@ export function rowToLead(r) {
     created_at:   r.created_at ? r.created_at.slice(0, 10) : '',
     cadenceTotal: r.cadence_total != null ? String(r.cadence_total) : '',
     necaLeadId:   r.neca_lead_id || null,
+    source:       r.source       || '',
   };
 }
 
@@ -48,6 +49,7 @@ function leadToRow(l) {
     collected:        l.collected !== '' && l.collected != null ? parseFloat(l.collected) : null,
     stage_changed_at: l.stage_changed_at || null,
     cadence_total:    l.cadenceTotal !== '' && l.cadenceTotal != null ? parseInt(l.cadenceTotal, 10) : null,
+    source:           l.source       || null,
   };
 }
 
