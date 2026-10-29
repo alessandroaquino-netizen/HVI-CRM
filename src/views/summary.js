@@ -1,5 +1,6 @@
 import { calcDropRisk, MANUFACTURER_BLACKOUTS, MANUFACTURERS } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
+import { getMyAccess } from '../access.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => '$' + Number(n || 0).toLocaleString();
@@ -80,7 +81,21 @@ export function renderSummary(ctx) {
     block('Invoices with warnings', flagged.map(i => row(`data-go-view="dtcInvoices"`, `${i.doc_type === 'proforma' ? 'Pro-forma' : 'Invoice'} ${i.invoice_number}`, i.warnings.find(w => w.level === 'error' || w.level === 'warn')?.msg, '')), { goView: 'dtcInvoices', goLabel: 'Open invoices' });
   }
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const me = getMyAccess();
+  const first = (me?.full_name || (me?.email || '').split('@')[0] || '').split(/[\s._]+/)[0];
+  const stat = (n, label) => `<div class="hero-stat"><b>${n}</b><span>${label}</span></div>`;
+  const dueN = ctx.leads.filter(l => l.followupDate && l.followupDate <= today && !CLOSED.includes(l.stage)).length;
+  const hotN = ctx.can('necaLeads') ? ctx.necaLeads.filter(n => n.tier === 'A' && n.outreach_status === 'not_contacted' && !n.linked_lead_id).length : 0;
+  const payN = ctx.can('dtcFinancials') ? ctx.financials.filter(f => outstanding(f) > 0 && f.expected_next_payment_date && f.expected_next_payment_date <= addDays(today, 7)).length : 0;
+  const riskN = ctx.can('dtcProducts') ? ctx.products.filter(p => ['overdue', 'at-risk'].includes(calcDropRisk(p))).length : 0;
   el.innerHTML = `
-    <div style="font-size:12px;color:var(--text3);margin-bottom:1rem">What needs attention today, across the areas you can see. Click an item to open it.</div>
+    <div class="hero"><div class="hero-inner">
+      <div><h2>${greeting}${first ? `, <em>${first.charAt(0).toUpperCase() + first.slice(1)}</em>` : ''}</h2>
+        <p>${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} · here is what needs attention today.</p></div>
+      <div class="hero-stats">${ctx.can('followups') ? stat(dueN, 'Follow-ups due') : ''}${ctx.can('necaLeads') ? stat(hotN, 'Tier A to contact') : ''}${ctx.can('dtcFinancials') ? stat(payN, 'Payments due') : ''}${ctx.can('dtcProducts') ? stat(riskN, 'Products at risk') : ''}</div>
+    </div></div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:1rem">Click any item to open it.</div>
     ${sections.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:14px">${sections.join('')}</div>` : '<div style="color:var(--text3)">No sections are available for your access.</div>'}`;
 }

@@ -1,3 +1,4 @@
+import { ink } from '../theme.js';
 import { PROJECT_STAGES, PHASES, daysAtStage, stageStatus } from '../controllers/projects.js';
 import { PROJECT_STATUSES, TEAM_MEMBERS } from '../constants.js';
 import { formatDate } from '../utils.js';
@@ -131,7 +132,7 @@ export function renderProjects(projects, leads) {
     const stageProjects = projects.filter(p => p.stage === stage.n);
     html += `
       <div class="proj-stage-col">
-        <div class="proj-stage-header" style="color:#${phase.color}">
+        <div class="proj-stage-header" style="color:${ink(phase.color)}">
           ${typeIcon(stage.type)}
           <span style="color:var(--text2)">${stage.n}. ${stage.label}</span>
           <span class="stage-count">${stageProjects.length || ''}</span>

@@ -1,6 +1,8 @@
+import { ink, fill } from '../theme.js';
 import { PROJECT_STAGES, PHASES, stageStatus, daysAtStage } from '../controllers/projects.js';
 import { avgDaysPerStage, avgCompletionDays, plannedVsActualByPhase } from '../controllers/projectTracking.js';
 import { renderListDetail } from './modal.js';
+import { columns, stack, panel, vizColor } from '../viz.js';
 
 function money(n) { return '$' + Math.round(n || 0).toLocaleString(); }
 
@@ -96,6 +98,13 @@ export function renderProjectsDashboard(projects, activity, stageDates = []) {
       </div>
     </div>
 
+    <div class="grid-2" style="margin-bottom:2rem">
+      ${panel('Projects by stage', columns(PROJECT_STAGES.map(st => ({ label: String(st.n), value: projects.filter(p => p.stage === st.n).length,
+        color: fill((PHASES.find(ph => ph.n === st.phase) || PHASES[0]).color) }))), { sub: 'stage number, colored by phase' })}
+      ${panel('Money: estimated vs collected', stack([{ label: 'Collected', value: totalColl, display: money(totalColl), color: 'var(--viz-3)' },
+        { label: 'Still to collect', value: Math.max(0, totalEst - totalColl), display: money(Math.max(0, totalEst - totalColl)), color: 'var(--viz-1)' }]), { sub: `${money(totalEst)} total` })}
+    </div>
+
     <div class="section-divider" style="margin-bottom:1rem">
       <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Planned vs. actual, by phase</span>
     </div>
@@ -105,7 +114,7 @@ export function renderProjectsDashboard(projects, activity, stageDates = []) {
         const onTime = pva && pva.avgVarianceDays <= 0;
         return `
         <div class="kpi-card">
-          <div class="kpi-label" style="color:#${phase.color}">${phase.label}</div>
+          <div class="kpi-label" style="color:${ink(phase.color)}">${phase.label}</div>
           <div class="kpi-val" style="${pva ? `color:${onTime ? 'var(--green)' : 'var(--red)'}` : ''}">${pva ? (onTime ? '' : '+') + Math.round(pva.avgVarianceDays) + 'd' : '—'}</div>
           <div class="kpi-sub">${pva ? `avg vs. plan · ${pva.compared} stage${pva.compared === 1 ? '' : 's'} compared` : 'not enough data yet'}</div>
         </div>`;
@@ -118,10 +127,10 @@ export function renderProjectsDashboard(projects, activity, stageDates = []) {
     <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:2rem">
       ${byPhase.map(b => `
         <div class="kpi-card" data-phase="${b.phase.n}" style="cursor:pointer">
-          <div class="kpi-label" style="color:#${b.phase.color}">${b.phase.label}</div>
+          <div class="kpi-label" style="color:${ink(b.phase.color)}">${b.phase.label}</div>
           <div class="kpi-val">${b.projects.length}</div>
           <div style="height:3px;background:var(--bg4);border-radius:3px;margin-top:10px">
-            <div style="height:100%;width:${Math.round((b.projects.length / maxPhaseCount) * 100)}%;background:#${b.phase.color};border-radius:3px"></div>
+            <div style="height:100%;width:${Math.round((b.projects.length / maxPhaseCount) * 100)}%;background:${fill(b.phase.color)};border-radius:3px"></div>
           </div>
         </div>`).join('')}
     </div>

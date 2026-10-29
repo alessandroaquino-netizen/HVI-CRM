@@ -1,4 +1,6 @@
 import { renderListDetail } from './modal.js';
+import { STAGES } from '../constants.js';
+import { funnel, donut, hbars, panel, vizColor } from '../viz.js';
 import { formatDate } from '../utils.js';
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
@@ -210,6 +212,22 @@ export function renderDashboard(leads, projects) {
     return l.followupDate < wRef;
   });
 
+  // ── charts: where the pipeline is and where leads come from ────────────────
+  const openLeads = leads.filter(l => !['Closed Lost', 'Not Qualified'].includes(l.stage));
+  const stageRows = STAGES.filter(s => !['Closed Lost', 'Not Qualified'].includes(s)).map((s, i) => {
+    const ls = openLeads.filter(l => l.stage === s);
+    return { label: s, value: ls.length, display: money(ls.reduce((a, l) => a + (parseFloat(l.est) || 0), 0)), color: s === 'Closed Won' ? 'var(--viz-3)' : vizColor(i) };
+  });
+  const sourceMap = {}; leads.forEach(l => { const k = l.source || 'Not set'; sourceMap[k] = (sourceMap[k] || 0) + 1; });
+  const sourceRows = Object.entries(sourceMap).sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value, color: vizColor(i) }));
+  const segMap = {}; leads.forEach(l => { const k = l.segment || 'Not set'; segMap[k] = (segMap[k] || 0) + (parseFloat(l.est) || 0); });
+  const segRows = Object.entries(segMap).sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value, display: money(value), color: vizColor(i + 1) }));
+  const chartsHtml = `<div class="grid-3" style="margin-bottom:2rem">
+    ${panel('Pipeline by stage', funnel(stageRows), { sub: 'leads and est. value' })}
+    ${panel('Where leads come from', donut(sourceRows, { center: leads.length, centerLabel: 'leads' }), { sub: 'by source' })}
+    ${panel('Pipeline value by segment', hbars(segRows), { sub: 'est. value' })}
+  </div>`;
+
   // ── HTML ─────────────────────────────────────────────────────────────────
 
   el.innerHTML = `
@@ -226,6 +244,8 @@ export function renderDashboard(leads, projects) {
     ${kpiCard('closeRateQ', 'Close rate', closeRate + '%', `${wonQ.length} won / ${proposalsQ.length} proposals in period`, {})}
     ${kpiCard('avgDealQ', 'Avg deal size', avgDeal ? money(avgDeal) : '—', avgDeal >= 20000 ? '✓ Trending toward $20K+ target' : 'Target: $20,000+ AOV', { ok: avgDeal >= 20000 ? true : null })}
   </div>
+
+  ${chartsHtml}
 
   <!-- WEEK PERFORMANCE + PIPELINE HEALTH -->
   <div class="section-divider" style="margin-bottom:1rem">

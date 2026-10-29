@@ -1,5 +1,6 @@
 import { computeNecaScore } from '../controllers/neca.js';
 import { LEAD_SOURCES } from '../constants.js';
+import { donut, hbars, panel } from '../viz.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PAGE_SIZE = 100;
@@ -72,6 +73,7 @@ export function renderNecaLeads(leads, { onOpen, onMatch, onAdd }) {
   const el = document.getElementById('necaLeadsView');
   if (!el) return;
   const count = t => leads.filter(l => l.tier === t).length;
+  const contacted = leads.filter(l => l.outreach_status !== 'not_contacted').length;
   const states = [...new Set(leads.map(l => l.state).filter(Boolean))].sort();
   const sources = [...new Set([...LEAD_SOURCES, ...leads.map(l => l.source).filter(Boolean)])];
   const filtered = sorted(leads.filter(matches));
@@ -106,6 +108,13 @@ export function renderNecaLeads(leads, { onOpen, onMatch, onAdd }) {
       ${kpi('Researched', researched, 'var(--blue)', 'beyond directory data')}
       ${kpi('With executive', withExec)}
       ${kpi('In pipeline', inPipeline, 'var(--purple)')}
+    </div>
+    <div class="grid-3" style="margin-bottom:1.25rem">
+      ${panel('By tier', donut([
+        { label: 'Tier A', value: count('A'), color: 'var(--viz-3)' }, { label: 'Tier B', value: count('B'), color: 'var(--viz-1)' },
+        { label: 'Tier C', value: count('C'), color: 'var(--viz-8)' }, { label: 'No tier', value: leads.filter(l => !l.tier).length, color: 'var(--viz-6)' }], { center: leads.length, centerLabel: 'companies' }))}
+      ${panel('By size', hbars(['1000+', '501-1000', '101-500', '51-100', '1-50'].map((b, i) => ({ label: b + ' employees', value: leads.filter(l => l.employee_band === b).length, color: `var(--viz-${i + 1})` })).concat([{ label: 'Not researched', value: leads.filter(l => !l.employee_band).length, color: 'var(--viz-8)' }])))}
+      ${panel('By source and outreach', hbars([...sources.map((s, i) => ({ label: s, value: leads.filter(l => l.source === s).length, color: `var(--viz-${(i % 8) + 1})` })).filter(r => r.value), { label: 'Contacted', value: contacted, color: 'var(--viz-2)' }]))}
     </div>
     <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
       <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Segments:</span>

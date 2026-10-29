@@ -1,6 +1,7 @@
 import { MANUFACTURERS } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { renderListDetail } from './modal.js';
+import { hbars, stack, panel, vizColor } from '../viz.js';
 
 export function renderDtcFinancials(financials, products, costs = new Map()) {
   const el = document.getElementById('dtcFinancialsView');
@@ -47,6 +48,18 @@ export function renderDtcFinancials(financials, products, costs = new Map()) {
         <div class="kpi-sub">$${photogPaid.toLocaleString()} paid of $${totalPhotog.toLocaleString()}</div>
       </div>
       <div class="kpi-card" data-kpi="paid"><div class="kpi-label">Total paid to date</div><div class="kpi-val" style="color:var(--green)">$${totalPaid.toLocaleString()}</div><div class="kpi-sub">of $${grandTotal.toLocaleString()} total due</div></div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:2rem">
+      ${panel('Paid vs still to pay', stack([
+        { label: 'Paid', value: totalPaid, display: '$' + totalPaid.toLocaleString(), color: 'var(--viz-3)' },
+        { label: 'Deposits pending', value: depositPending, display: '$' + depositPending.toLocaleString(), color: 'var(--viz-1)' },
+        { label: 'Final payments pending', value: finalPending, display: '$' + finalPending.toLocaleString(), color: 'var(--viz-5)' },
+        { label: 'Photographer pending', value: photogPending, display: '$' + photogPending.toLocaleString(), color: 'var(--viz-2)' }]), { sub: `$${grandTotal.toLocaleString()} total` })}
+      ${panel('Spend by manufacturer', hbars(Object.values(byMfr).filter(m => m.rows.length).map((m, i) => {
+        const v = m.rows.reduce((a, f) => a + (f.deposit_amount || 0) + (f.final_amount || 0) + (f.photographer_fee || 0) + (f.additional_payment_amount || 0), 0);
+        return { label: m.label, value: v, display: '$' + Math.round(v).toLocaleString(), color: vizColor(i) };
+      }).sort((a, b) => b.value - a.value)))}
     </div>
 
     ${Object.entries(byMfr).filter(([,v]) => v.rows.length > 0).map(([mfrId, mfr]) => `

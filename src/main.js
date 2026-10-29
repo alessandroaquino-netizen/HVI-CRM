@@ -50,6 +50,8 @@ import { renderNecaLeads, renderNecaLeadDetail, renderAddPotentialLead } from '.
 import { renderDraftModal } from './views/draft.js';
 import { renderSummary } from './views/summary.js';
 import { renderSkuImport } from './views/skuImport.js';
+import { initTheme, toggleTheme } from './theme.js';
+import { initResponsive } from './responsive.js';
 import { fetchInvoices, fetchAliases, saveInvoicePlan, deleteInvoice, invoiceFileUrl, attachOriginalFile } from './controllers/invoices.js';
 import { readInvoiceFile, makeAiExtractor, sha256 } from './invoices/readFile.js';
 import { renderDtcInvoices, renderInvoiceReview, renderInvoiceDetail } from './views/dtcInvoices.js';
@@ -123,7 +125,17 @@ function render() {
   if (currentView === 'dtcInvoices')       renderDtcInvoices(dtcInvoices, dtcProducts, { onUpload: handleInvoiceUpload, onOpen: openInvoiceDetail });
 }
 
+const MOCK = import.meta.env.DEV && new URLSearchParams(location.search).has('mock');
+async function applyMock() {
+  const m = await import('./dev/mockData.js');
+  leads = m.mockLeads(); projects = m.mockProjects(leads); dtcProducts = m.mockDtcProducts(); dtcFinancials = m.mockDtcFinancials(dtcProducts);
+  dtcInvoices = m.mockInvoices(dtcProducts); necaLeads = m.mockNeca(leads); necaLoaded = true;
+  projectStageDates = []; projectActivity = []; leadActivity = []; dtcMarketing = []; dtcVariants = []; dtcPhaseDates = []; dtcAliases = []; appUsers = [];
+  render();
+}
+
 async function refresh() {
+  if (MOCK) return applyMock();
   // Stage-tracking / DTC tables are newer, optional migrations — don't let a not-yet-migrated
   // Supabase project take down leads/projects loading if they're missing.
   const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes, dtcProductsRes, dtcFinancialsRes, dtcMarketingRes, dtcVariantsRes, dtcPhaseDatesRes, appUsersRes, invoicesRes, aliasesRes] = await Promise.all([
@@ -171,6 +183,8 @@ function setView(view) {
     el.classList.toggle('active', el.dataset.view === view);
   });
   const nonLeadViews = ['projects', 'leadDashboard', 'projectsDashboard', 'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads', 'dtcInvoices', 'summary'];
+  const searchWrap = document.querySelector('.search-bar');
+  if (searchWrap) searchWrap.style.display = ['pipeline', 'list'].includes(view) ? '' : 'none';
   // Show/hide Add Lead button — not relevant outside the leads views
   const addBtn = document.getElementById('addLeadBtn');
   if (addBtn) addBtn.style.display = nonLeadViews.includes(view) ? 'none' : '';
@@ -438,6 +452,7 @@ async function handleDtcFinancialDelete(id) {
 
 // ---------- realtime ----------
 function subscribeRealtime() {
+  if (MOCK) return;
   if (!realtimeLeads)      realtimeLeads      = subscribeToLeads(supabase, refresh);
   if (!realtimeProjects)   realtimeProjects   = subscribeToProjects(refresh);
   if (!realtimeStageDates) realtimeStageDates = subscribeToStageDates(refresh);
@@ -459,6 +474,7 @@ function unsubscribeRealtime() {
 
 // ---------- NECA potential leads (separate table, loaded on demand) ----------
 async function loadNecaLeads() {
+  if (MOCK) { if (currentView === 'necaLeads') render(); return; }
   try { necaLeads = await fetchNecaLeads(); necaLoaded = true; }
   catch (err) { necaLeads = []; alert('Could not load NECA leads (has migration_neca_leads.sql been run?): ' + err.message); }
   if (currentView === 'necaLeads') render();
@@ -712,6 +728,9 @@ function showApp(user, access) {
   document.getElementById('loginShell').classList.add('hidden');
   document.getElementById('appShell').classList.remove('hidden');
   document.getElementById('topUserEmail').textContent = user.email;
+  const nameSource = (access?.full_name || user.email.split('@')[0]).replace(/[._]/g, ' ');
+  document.getElementById('userAvatar').textContent = nameSource.split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('') || '·';
+  document.getElementById('userRole').textContent = access?.role === 'admin' ? 'Administrator' : 'Team member';
   const isTestEnv = (import.meta.env.VITE_SUPABASE_URL || '').includes('ymzeklhdzpmaakvlxrkx');
   const banner = document.getElementById('testEnvBanner');
   if (banner) banner.classList.toggle('hidden', !isTestEnv);
@@ -782,7 +801,12 @@ function wireEvents() {
 
 // ---------- bootstrap ----------
 async function bootstrap() {
+  initTheme();
   wireEvents();
+  initResponsive();
+  document.getElementById('themeBtn').addEventListener('click', toggleTheme);
+  window.addEventListener('themechange', () => render());
+  if (MOCK) { showApp({ email: 'demo@highvoltageindustries.com' }, { email: 'demo@highvoltageindustries.com', full_name: 'Demo Admin', role: 'admin', status: 'active', pages: [] }); return; }
   const inviteToken = captureInviteTokenFromUrl() || getPendingInviteToken();
   if (inviteToken) document.getElementById('loginInviteNote').classList.remove('hidden');
   onAuthChange(showApp, showLogin);

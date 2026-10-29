@@ -1,3 +1,4 @@
+import { ink } from '../theme.js';
 import { SEASONAL_WINDOWS, KEY_DATES, MANUFACTURER_BLACKOUTS, blackoutsOn, calcDropRisk } from '../dtc_constants.js';
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
@@ -57,7 +58,7 @@ function monthGrid(year, month, products, today) {
     return `<div class="dtc-cal-cell${isToday ? ' dtc-cal-cell-today' : ''}" style="${boBg ? `background:${boBg}` : tint ? `background:${tint.bg}` : ''}">
       <div class="dtc-cal-daynum">${day}</div>
       ${blackouts.filter(b => b.start === dateStr).map(b => `<div class="dtc-cal-keydate" style="color:var(--red)" title="${b.note}">⛔ ${b.label}</div>`).join('')}
-      ${keyDates.map(k => `<div class="dtc-cal-keydate" style="color:#${k.color}" title="${k.label}">${k.label}</div>`).join('')}
+      ${keyDates.map(k => `<div class="dtc-cal-keydate" style="color:${ink(k.color)}" title="${k.label}">${k.label}</div>`).join('')}
       ${drops.map(p => {
         const risk = calcDropRisk(p);
         const color = risk === 'overdue' ? 'var(--red)' : risk === 'at-risk' ? 'var(--accent)' : 'var(--green)';
@@ -100,7 +101,7 @@ export function renderDtcCalendar(products) {
       <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
         <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Legend:</span>
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:var(--green);display:inline-block"></span>On track</span>
-        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);display:inline-block"></span>At risk</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:var(--brand);display:inline-block"></span>At risk</span>
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:var(--red);display:inline-block"></span>Overdue</span>
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:rgba(91,156,246,.3);display:inline-block"></span>Seasonal window</span>
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:rgba(224,85,85,.4);display:inline-block"></span>Manufacturer closed</span>

@@ -1,6 +1,7 @@
 import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, blackoutWarnings, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { renderListDetail } from './modal.js';
+import { ink, fill } from '../theme.js';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function riskBorder(risk) {
@@ -20,13 +21,13 @@ function categoryBadge(cat) {
   const c = PRODUCT_CATEGORIES.find(x => x.id === cat);
   if (!c) return '';
   const r = parseInt(c.color.slice(0,2),16), g = parseInt(c.color.slice(2,4),16), b = parseInt(c.color.slice(4,6),16);
-  return `<span class="badge" style="background:rgba(${r},${g},${b},.15);color:#${c.color};font-size:9px">${c.label}</span>`;
+  return `<span class="badge" style="background:rgba(${r},${g},${b},.15);color:${ink(c.color)};font-size:9px">${c.label}</span>`;
 }
 
 function priorityBadge(priority) {
   const pr = PRIORITIES.find(x => x.id === priority);
   if (!pr) return '';
-  return `<span class="badge" style="background:rgba(255,255,255,.06);color:#${pr.color};font-size:9px">${pr.label} priority</span>`;
+  return `<span class="badge" style="background:var(--bg4);color:${ink(pr.color)};font-size:9px">${pr.label} priority</span>`;
 }
 
 function productCard(p) {
@@ -107,7 +108,7 @@ export function renderDtcProducts(products) {
       ${DTC_PHASES.map(phase => {
         const pp = filtered.filter(p => p.phase === phase.id);
         return `<div class="stage-col">
-          <div class="stage-header" style="border-color:#${phase.color}40"><span style="color:#${phase.color}">${phase.label}</span><span class="stage-count">${pp.length}</span></div>
+          <div class="stage-header" style="border-color:${fill(phase.color)}"><span style="color:${ink(phase.color)}">${phase.label}</span><span class="stage-count">${pp.length}</span></div>
           <div>${pp.length ? pp.map(productCard).join('') : '<div class="empty-col">—</div>'}</div>
         </div>`;
       }).join('')}
