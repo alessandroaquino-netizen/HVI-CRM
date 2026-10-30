@@ -17,6 +17,12 @@ export function initResponsive() {
   // Every table cell learns its column title so the mobile "card" layout can show it.
   const enhance = root => {
     root.querySelectorAll('table.list-table').forEach(table => {
+      if (!table.parentElement.classList.contains('table-scroll')) {
+        const wrap = document.createElement('div');
+        wrap.className = 'table-scroll';
+        table.parentElement.insertBefore(wrap, table);
+        wrap.appendChild(table);
+      }
       const heads = [...table.querySelectorAll('thead th')].map(th => th.textContent.trim());
       if (!heads.length) return;
       table.querySelectorAll('tbody tr').forEach(tr => {
@@ -27,7 +33,7 @@ export function initResponsive() {
     });
   };
   let queued = false;
-  const schedule = () => { if (queued) return; queued = true; requestAnimationFrame(() => { queued = false; enhance(document); }); };
+  const schedule = () => { if (queued) return; queued = true; setTimeout(() => { queued = false; enhance(document); }, 0); };
   new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
   enhance(document);
 }
