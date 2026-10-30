@@ -179,7 +179,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
         if (!key) {
           return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg3);border-radius:var(--radius)">
             <span style="font-size:12px;color:var(--text2)">${t.label}</span>
-            <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${formatDate(t.start)} → ${formatDate(t.end)}</span>
+            <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${t.start === t.end ? formatDate(t.start) : `${formatDate(t.start)} → ${formatDate(t.end)}`}</span>
           </div>`;
         }
         const override = phaseDates.find(d => d.phase_key === key);

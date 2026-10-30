@@ -201,12 +201,13 @@ export function phaseDatesForProduct(product) {
   const designFinalStart = addDays(samplingStart, -ph.design_final * 7);
   const designFirstStart = addDays(designFinalStart, -ph.design_first * 7);
 
+  // Each window runs from the start of that phase to the start of the next one; Drop is the single drop date.
   return [
-    { label: 'Design', start: designFirstStart, end: designFinalStart },
-    { label: 'Sampling', start: designFinalStart, end: samplingStart },
-    { label: 'Production', start: samplingStart, end: productionStart },
-    { label: 'Shipping', start: productionStart, end: shippingStart },
-    { label: 'Drop', start: shippingStart, end: drop },
+    { label: 'Design', start: designFirstStart, end: samplingStart },
+    { label: 'Sampling', start: samplingStart, end: productionStart },
+    { label: 'Production', start: productionStart, end: shippingStart },
+    { label: 'Shipping', start: shippingStart, end: drop },
+    { label: 'Drop', start: drop, end: drop },
   ];
 }
 
