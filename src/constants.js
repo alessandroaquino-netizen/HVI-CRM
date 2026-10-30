@@ -12,6 +12,9 @@ export const SEGMENTS = [
   'High voltage contractor', 'Utility company', 'Union local', 'Other',
 ];
 
+// Where a lead came from. Used by Potential Leads and the pipeline.
+export const LEAD_SOURCES = ['NECA', 'IBEW / Union', 'Referral', 'Conference / event', 'Inbound / website', 'Cold outreach', 'Other'];
+
 export const PROJECT_STATUSES = ['To be Started', 'In Progress', 'On Hold', 'Complete'];
 
 export const TEAM_MEMBERS = ['Alessandro', 'Tony', 'Adriana'];

@@ -1,4 +1,4 @@
-import { STAGES, SEGMENTS, DISC } from '../constants.js';
+import { STAGES, SEGMENTS, DISC, LEAD_SOURCES } from '../constants.js';
 import { followupStatus } from '../controllers/leads.js';
 import { formatDate } from '../utils.js';
 
@@ -58,7 +58,7 @@ function addDays(dateStr, days) {
   return d.toISOString().slice(0, 10);
 }
 
-export function renderDetail(lead, activity, { onEdit, onDelete, onStageChange, onAddComment, onDuplicate }) {
+export function renderDetail(lead, activity, { onEdit, onDelete, onStageChange, onAddComment, onDuplicate, onDraft }) {
   const disc = lead.disc ? DISC[lead.disc] : null;
 
   const stagePills = STAGES.map(s =>
@@ -97,6 +97,7 @@ export function renderDetail(lead, activity, { onEdit, onDelete, onStageChange, 
     <div class="modal-header">
       <h3>${lead.contact || 'Lead'}</h3>
       <div style="display:flex;gap:6px">
+        ${onDraft ? '<button class="btn btn-sm btn-ghost" id="mdDraftBtn">✉ Draft email</button>' : ''}
         <button class="btn btn-sm" id="mdEditBtn">Edit</button>
         <button class="btn btn-sm btn-danger" id="mdDeleteBtn">Delete</button>
         <button class="btn btn-sm btn-ghost" id="mdCloseBtn">✕</button>
@@ -110,6 +111,9 @@ export function renderDetail(lead, activity, { onEdit, onDelete, onStageChange, 
         </div>
         <button class="btn btn-sm btn-ghost" id="mdDuplicateBtn">New opportunity from this contact</button>
       </div>
+      ${lead.necaLeadId ? `<div class="notes-display" style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center">
+        <span><span class="badge" style="background:rgba(155,127,232,.2);color:var(--purple)">NECA member</span> This company is also on the NECA Potential Leads list.</span>
+        <button class="btn btn-sm" data-open-neca-lead="${lead.necaLeadId}">View NECA record</button></div>` : ''}
       <div class="section-divider">Stage</div>
       <div class="stage-selector" style="margin-bottom:1.5rem">${stagePills}</div>
       <div class="section-divider">Details</div>
@@ -117,6 +121,7 @@ export function renderDetail(lead, activity, { onEdit, onDelete, onStageChange, 
         <div class="detail-field"><div class="lbl">Phone</div><div class="val">${lead.phone || '—'}</div></div>
         <div class="detail-field"><div class="lbl">Email</div><div class="val" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lead.email || '—'}</div></div>
         <div class="detail-field"><div class="lbl">Segment</div><div class="val">${lead.segment || '—'}</div></div>
+        <div class="detail-field"><div class="lbl">Source</div><div class="val">${lead.source || '—'}</div></div>
         <div class="detail-field"><div class="lbl">DISC</div><div class="val">${lead.disc ? `<span class="badge badge-${lead.disc}">${lead.disc}</span>` : '—'}</div></div>
         <div class="detail-field"><div class="lbl">Est. value</div><div class="val">${lead.est ? '$' + parseFloat(lead.est).toLocaleString() : '—'}</div></div>
         <div class="detail-field"><div class="lbl">Est. units</div><div class="val">${lead.units || '—'}</div></div>
@@ -150,6 +155,7 @@ export function renderDetail(lead, activity, { onEdit, onDelete, onStageChange, 
 
   // Wire up buttons
   document.getElementById('mdCloseBtn').addEventListener('click', closeModal);
+  document.getElementById('mdDraftBtn')?.addEventListener('click', () => onDraft(lead));
   document.getElementById('mdEditBtn').addEventListener('click', () => onEdit(lead.id));
   document.getElementById('mdDeleteBtn').addEventListener('click', () => onDelete(lead.id));
   document.getElementById('mdDuplicateBtn').addEventListener('click', () => onDuplicate(lead.id));
@@ -184,6 +190,9 @@ export function renderForm(lead = {}, editingId, { onSave }) {
         <div class="form-row"><label>Phone</label><input id="f_phone" value="${lead.phone || ''}" placeholder="555-000-0000"></div>
       </div>
       <div class="form-row"><label>Email</label><input id="f_email" value="${lead.email || ''}" placeholder="name@company.com"></div>
+      <div class="form-row"><label>Lead source</label>
+        <select id="f_source"><option value="">—</option>${LEAD_SOURCES.map(s => opt(s, lead.source)).join('')}</select>
+      </div>
       <div class="form-grid">
         <div class="form-row"><label>Segment</label>
           <select id="f_segment"><option value="">—</option>${SEGMENTS.map(s => opt(s, lead.segment)).join('')}</select>
@@ -219,6 +228,7 @@ export function renderForm(lead = {}, editingId, { onSave }) {
       phone:       g('f_phone'),
       email:       g('f_email'),
       segment:     g('f_segment'),
+      source:      g('f_source'),
       stage:       g('f_stage'),
       disc:        g('f_disc'),
       est:         g('f_est'),

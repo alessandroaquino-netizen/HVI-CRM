@@ -1,8 +1,9 @@
 import { MANUFACTURERS } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { renderListDetail } from './modal.js';
+import { hbars, stack, panel, vizColor } from '../viz.js';
 
-export function renderDtcFinancials(financials, products) {
+export function renderDtcFinancials(financials, products, costs = new Map()) {
   const el = document.getElementById('dtcFinancialsView');
   if (!el) return;
 
@@ -49,12 +50,24 @@ export function renderDtcFinancials(financials, products) {
       <div class="kpi-card" data-kpi="paid"><div class="kpi-label">Total paid to date</div><div class="kpi-val" style="color:var(--green)">$${totalPaid.toLocaleString()}</div><div class="kpi-sub">of $${grandTotal.toLocaleString()} total due</div></div>
     </div>
 
+    <div class="grid-2" style="margin-bottom:2rem">
+      ${panel('Paid vs still to pay', stack([
+        { label: 'Paid', value: totalPaid, display: '$' + totalPaid.toLocaleString(), color: 'var(--viz-3)' },
+        { label: 'Deposits pending', value: depositPending, display: '$' + depositPending.toLocaleString(), color: 'var(--viz-1)' },
+        { label: 'Final payments pending', value: finalPending, display: '$' + finalPending.toLocaleString(), color: 'var(--viz-5)' },
+        { label: 'Photographer pending', value: photogPending, display: '$' + photogPending.toLocaleString(), color: 'var(--viz-2)' }]), { sub: `$${grandTotal.toLocaleString()} total` })}
+      ${panel('Spend by manufacturer', hbars(Object.values(byMfr).filter(m => m.rows.length).map((m, i) => {
+        const v = m.rows.reduce((a, f) => a + (f.deposit_amount || 0) + (f.final_amount || 0) + (f.photographer_fee || 0) + (f.additional_payment_amount || 0), 0);
+        return { label: m.label, value: v, display: '$' + Math.round(v).toLocaleString(), color: vizColor(i) };
+      }).sort((a, b) => b.value - a.value)))}
+    </div>
+
     ${Object.entries(byMfr).filter(([,v]) => v.rows.length > 0).map(([mfrId, mfr]) => `
       <div style="margin-bottom:2rem">
         <div class="section-divider" style="margin-bottom:.75rem">${mfr.label}</div>
         <table class="list-table">
           <thead><tr>
-            <th>Product</th><th>Order #</th><th>Invoice #</th>
+            <th>Product</th><th>Units</th><th>Cost / unit</th><th>Order #</th><th>Invoice #</th>
             <th>Deposit</th><th>Dep. paid</th>
             <th>Final</th><th>Final paid</th>
             <th>Photographer</th><th>Photo paid</th>
@@ -64,6 +77,7 @@ export function renderDtcFinancials(financials, products) {
           <tbody>
             ${mfr.rows.map(f => `<tr>
               <td>${f.product_name||'—'}</td>
+              ${(() => { const c = costs.get(f.dtc_product_id); return c ? `<td style="font-family:var(--mono);font-size:12px">${c.basisUnits || '—'}</td><td style="font-family:var(--mono);font-size:12px" title="Goods $${c.goodsPerUnit ?? '—'} + photography, shipping and fees, from invoice ${c.invoice.invoice_number}">${c.perUnit != null ? '$' + c.perUnit.toFixed(2) : '—'}</td>` : '<td style="color:var(--text3)">—</td><td style="color:var(--text3)">—</td>'; })()}
               <td style="font-family:var(--mono);font-size:11px">${f.order_number||'—'}</td>
               <td style="font-family:var(--mono);font-size:11px">${f.invoice_number||'—'}</td>
               <td>${f.deposit_amount?'$'+Number(f.deposit_amount).toLocaleString():'—'}</td>

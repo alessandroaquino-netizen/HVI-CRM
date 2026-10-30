@@ -1,4 +1,5 @@
-import { SEASONAL_WINDOWS, KEY_DATES, calcDropRisk } from '../dtc_constants.js';
+import { ink } from '../theme.js';
+import { SEASONAL_WINDOWS, KEY_DATES, MANUFACTURER_BLACKOUTS, blackoutsOn, calcDropRisk } from '../dtc_constants.js';
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function daysInMonth(year, month) { return new Date(year, month + 1, 0).getDate(); }
@@ -49,12 +50,15 @@ function monthGrid(year, month, products, today) {
     if (day === null) return `<div class="dtc-cal-cell dtc-cal-cell-empty"></div>`;
     const dateStr = isoDate(year, month, day);
     const tint = seasonalTint(dateStr);
+    const blackouts = blackoutsOn(dateStr);
+    const boBg = blackouts.some(b => b.kind === 'closure') ? 'rgba(224,85,85,.16)' : blackouts.some(b => b.kind === 'delay') ? 'rgba(232,135,74,.12)' : blackouts.length ? 'rgba(224,85,85,.10)' : '';
     const drops = dropsByDay[dateStr] || [];
     const keyDates = keyDatesByDay[dateStr] || [];
     const isToday = dateStr === today;
-    return `<div class="dtc-cal-cell${isToday ? ' dtc-cal-cell-today' : ''}" style="${tint ? `background:${tint.bg}` : ''}">
+    return `<div class="dtc-cal-cell${isToday ? ' dtc-cal-cell-today' : ''}" style="${boBg ? `background:${boBg}` : tint ? `background:${tint.bg}` : ''}">
       <div class="dtc-cal-daynum">${day}</div>
-      ${keyDates.map(k => `<div class="dtc-cal-keydate" style="color:#${k.color}" title="${k.label}">${k.label}</div>`).join('')}
+      ${blackouts.filter(b => b.start === dateStr).map(b => `<div class="dtc-cal-keydate" style="color:var(--red)" title="${b.note}">⛔ ${b.label}</div>`).join('')}
+      ${keyDates.map(k => `<div class="dtc-cal-keydate" style="color:${ink(k.color)}" title="${k.label}">${k.label}</div>`).join('')}
       ${drops.map(p => {
         const risk = calcDropRisk(p);
         const color = risk === 'overdue' ? 'var(--red)' : risk === 'at-risk' ? 'var(--accent)' : 'var(--green)';
@@ -97,9 +101,11 @@ export function renderDtcCalendar(products) {
       <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
         <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Legend:</span>
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:var(--green);display:inline-block"></span>On track</span>
-        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);display:inline-block"></span>At risk</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:var(--brand);display:inline-block"></span>At risk</span>
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:var(--red);display:inline-block"></span>Overdue</span>
         <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:rgba(91,156,246,.3);display:inline-block"></span>Seasonal window</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:rgba(224,85,85,.4);display:inline-block"></span>Manufacturer closed</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:rgba(232,135,74,.35);display:inline-block"></span>Shipments delayed</span>
       </div>
       <div class="period-nav">
         <button class="btn btn-sm btn-ghost" id="dtcCalPrev">‹</button>

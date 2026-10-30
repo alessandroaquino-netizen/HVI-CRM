@@ -5,6 +5,7 @@ export const ACCESS_CATALOG = [
     { id: 'list',              label: 'All Leads' },
     { id: 'followups',         label: 'Follow-ups' },
     { id: 'leadDashboard',     label: 'Dashboard Lead Management' },
+    { id: 'necaLeads',         label: 'Potential Leads' },
   ]},
   { module: 'Operations (B2B Projects)', pages: [
     { id: 'projects',          label: 'B2B Projects' },
@@ -14,6 +15,7 @@ export const ACCESS_CATALOG = [
     { id: 'dtcProducts',       label: 'DTC Products' },
     { id: 'dtcCalendar',       label: 'DTC Calendar' },
     { id: 'dtcFinancials',     label: 'DTC Financials' },
+    { id: 'dtcInvoices',       label: 'DTC Invoices' },
     { id: 'dtcDashboard',      label: 'DTC Dashboard' },
     { id: 'dtcMarketing',      label: 'Marketing Ops' },
   ]},
@@ -34,9 +36,10 @@ export function isAdmin() { return myAccess?.role === 'admin'; }
 export function canView(viewId) {
   if (!myAccess) return false;
   if (viewId === 'settings') return isAdmin();
+  if (viewId === 'summary') return true;     // everyone sees the summary, limited to the areas they can open
   return isAdmin() || (myAccess.pages || []).includes(viewId);
 }
 
 export function firstAllowedView() {
-  return ALL_PAGE_IDS.find(canView) || (isAdmin() ? 'settings' : null);
+  return ALL_PAGE_IDS.find(canView) || (isAdmin() ? 'settings' : 'summary');
 }

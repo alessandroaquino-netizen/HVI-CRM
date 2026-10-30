@@ -1,6 +1,8 @@
-import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct } from '../dtc_constants.js';
+import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, blackoutWarnings, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { renderListDetail } from './modal.js';
+import { ink, fill } from '../theme.js';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function riskBorder(risk) {
   if (risk === 'overdue')  return 'border-color:rgba(224,85,85,.65)';
@@ -19,13 +21,13 @@ function categoryBadge(cat) {
   const c = PRODUCT_CATEGORIES.find(x => x.id === cat);
   if (!c) return '';
   const r = parseInt(c.color.slice(0,2),16), g = parseInt(c.color.slice(2,4),16), b = parseInt(c.color.slice(4,6),16);
-  return `<span class="badge" style="background:rgba(${r},${g},${b},.15);color:#${c.color};font-size:9px">${c.label}</span>`;
+  return `<span class="badge" style="background:rgba(${r},${g},${b},.15);color:${ink(c.color)};font-size:9px">${c.label}</span>`;
 }
 
 function priorityBadge(priority) {
   const pr = PRIORITIES.find(x => x.id === priority);
   if (!pr) return '';
-  return `<span class="badge" style="background:rgba(255,255,255,.06);color:#${pr.color};font-size:9px">${pr.label} priority</span>`;
+  return `<span class="badge" style="background:var(--bg4);color:${ink(pr.color)};font-size:9px">${pr.label} priority</span>`;
 }
 
 function productCard(p) {
@@ -98,6 +100,7 @@ export function renderDtcProducts(products) {
         <option value="">All manufacturers</option>${MANUFACTURERS.map(m=>`<option value="${m.id}" ${activeFilters.manufacturer===m.id?'selected':''}>${m.label}</option>`).join('')}
       </select>
       ${Object.values(activeFilters).some(Boolean)?`<button id="clearDtcFilters" class="btn btn-ghost btn-sm">✕ Clear</button>`:''}
+      <button class="btn btn-sm btn-ghost" id="importSkuBtn" title="Import sizes and quantities from a supplier SKU sheet">⬆ Import SKU sheet</button>
       <span style="margin-left:auto;font-size:11px;color:var(--text3)">${filtered.length} of ${products.length}</span>
     </div>
 
@@ -105,7 +108,7 @@ export function renderDtcProducts(products) {
       ${DTC_PHASES.map(phase => {
         const pp = filtered.filter(p => p.phase === phase.id);
         return `<div class="stage-col">
-          <div class="stage-header" style="border-color:#${phase.color}40"><span style="color:#${phase.color}">${phase.label}</span><span class="stage-count">${pp.length}</span></div>
+          <div class="stage-header" style="border-color:${fill(phase.color)}"><span style="color:${ink(phase.color)}">${phase.label}</span><span class="stage-count">${pp.length}</span></div>
           <div>${pp.length ? pp.map(productCard).join('') : '<div class="empty-col">—</div>'}</div>
         </div>`;
       }).join('')}
@@ -153,7 +156,7 @@ function variantRowHtml(v = {}) {
 }
 
 // ─── Detail modal ─────────────────────────────────────────────────────────
-export function renderDtcProductDetail(p, phaseDates, variants, { onEdit, onDelete, onDuplicate, onPhaseChange, onStartPremarketing, onSaveTimeline, onSaveVariants }) {
+export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, onDelete, onDuplicate, onPhaseChange, onStartPremarketing, onSaveTimeline, onSaveVariants }) {
   const risk   = calcDropRisk(p);
   const weeks  = weeksUntilDrop(p);
   const days   = daysInPhase(p);
@@ -176,7 +179,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { onEdit, onDele
         if (!key) {
           return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--bg3);border-radius:var(--radius)">
             <span style="font-size:12px;color:var(--text2)">${t.label}</span>
-            <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${formatDate(t.start)} → ${formatDate(t.end)}</span>
+            <span style="font-size:11px;font-family:var(--mono);color:var(--text3)">${t.start === t.end ? formatDate(t.start) : `${formatDate(t.start)} → ${formatDate(t.end)}`}</span>
           </div>`;
         }
         const override = phaseDates.find(d => d.phase_key === key);
@@ -206,6 +209,17 @@ export function renderDtcProductDetail(p, phaseDates, variants, { onEdit, onDele
       <button class="btn btn-sm btn-ghost" id="dtcAddVariantBtn">+ Add row</button>
       <button class="btn btn-sm btn-accent" id="dtcSaveVariantsBtn">Save sizes &amp; SKUs</button>
     </div>`;
+
+  const costSection = cost ? `
+    <div class="section-divider" style="margin-top:1rem">Cost per unit <span style="font-weight:400;text-transform:none;letter-spacing:0">— from ${cost.invoice.doc_type === 'proforma' ? 'pro-forma' : 'final invoice'} ${esc(cost.invoice.invoice_number)}</span></div>
+    <div class="detail-grid" style="margin-top:10px">
+      <div class="detail-field"><div class="lbl">Goods</div><div class="val">$${cost.goods.toLocaleString()}</div></div>
+      <div class="detail-field"><div class="lbl">Photography</div><div class="val">$${cost.photography.toLocaleString()}</div></div>
+      <div class="detail-field"><div class="lbl">Shipping and duty</div><div class="val">$${cost.shipping.toLocaleString()}</div></div>
+      <div class="detail-field"><div class="lbl">Fees and samples</div><div class="val">$${cost.fees.toLocaleString()}</div></div>
+      <div class="detail-field"><div class="lbl">Landed total</div><div class="val">$${cost.total.toLocaleString()}</div></div>
+      <div class="detail-field"><div class="lbl">Cost per unit (${cost.basisUnits} units)</div><div class="val" style="color:var(--accent)">${cost.perUnit != null ? '$' + cost.perUnit.toFixed(2) : '—'}</div></div>
+    </div>` : '';
 
   const samplingSection = p.phase === 'sampling' || ['production','warehouse'].includes(p.phase) ? `
     <div class="section-divider" style="margin-top:1rem">Sampling Details</div>
@@ -248,6 +262,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { onEdit, onDele
           :'<div style="font-size:12px;color:var(--text3)">No drop date</div>'}
         </div>
       </div>
+      ${blackoutWarnings(p).map(w => `<div class="notes-display" style="border-left:3px solid var(--red);margin-bottom:10px;font-size:12px">⛔ ${esc(w)}</div>`).join('')}
       <div class="section-divider">Move to phase</div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;margin:10px 0 1.5rem">${phasePills}</div>
       <div class="section-divider">Details</div>
@@ -263,6 +278,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { onEdit, onDele
         ${p.tech_pack_link?`<div class="detail-field" style="grid-column:span 2"><div class="lbl">Tech Pack</div><div class="val"><a href="${p.tech_pack_link}" target="_blank" style="color:var(--blue)">${p.tech_pack_link}</a></div></div>`:''}
       </div>
       ${timelineSection}
+      ${costSection}
       ${samplingSection}
       ${warehouseSection}
       ${variantsSection}

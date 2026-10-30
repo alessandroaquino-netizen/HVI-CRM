@@ -1,6 +1,6 @@
 import { supabase } from './supabase.js';
 import { signInWithGoogle, signOut, authorizeSignedInUser, onAuthChange } from './auth.js';
-import { setMyAccess, isAdmin, canView, firstAllowedView } from './access.js';
+import { setMyAccess, getMyAccess, isAdmin, canView, firstAllowedView } from './access.js';
 import {
   fetchAppUsers, inviteUser, updateAppUser, setAppUserStatus, deleteAppUser,
   captureInviteTokenFromUrl, getPendingInviteToken,
@@ -22,7 +22,7 @@ import {
   fetchDtcProducts, saveDtcProduct, updateDtcPhase, deleteDtcProduct, startPremarketing,
   fetchDtcFinancials, saveDtcFinancial, deleteDtcFinancial,
   fetchDtcMarketing, subscribeToDtc,
-  fetchDtcVariants, saveDtcVariants, variantsForProduct, copyDtcVariants,
+  fetchDtcVariants, saveDtcVariants, variantsForProduct, copyDtcVariants, upsertVariantsBySku,
 } from './controllers/dtc.js';
 import {
   fetchDtcPhaseDates, saveDtcPhaseDates, phaseDatesForDtcProduct, subscribeToDtcPhaseDates,
@@ -42,6 +42,20 @@ import { renderDtcFinancials, renderDtcFinancialForm } from './views/dtcFinancia
 import { renderDtcDashboard } from './views/dtcDashboard.js';
 import { renderDtcMarketing } from './views/dtcMarketing.js';
 import { renderSettings, renderUserForm, renderInviteLink } from './views/settings.js';
+import {
+  fetchNecaLeads, updateNecaLead, deleteNecaLead, linkNecaToLead, unlinkNecaFromLead, dismissNecaSuggestion, runNecaCrosslink,
+  createPotentialLead, markNecaContacted,
+} from './controllers/neca.js';
+import { renderNecaLeads, renderNecaLeadDetail, renderAddPotentialLead } from './views/necaLeads.js';
+import { renderDraftModal } from './views/draft.js';
+import { renderSummary } from './views/summary.js';
+import { renderSkuImport } from './views/skuImport.js';
+import { initTheme, toggleTheme } from './theme.js';
+import { initResponsive } from './responsive.js';
+import { fetchInvoices, fetchAliases, saveInvoicePlan, deleteInvoice, invoiceFileUrl, attachOriginalFile } from './controllers/invoices.js';
+import { readInvoiceFile, makeAiExtractor, sha256 } from './invoices/readFile.js';
+import { renderDtcInvoices, renderInvoiceReview, renderInvoiceDetail } from './views/dtcInvoices.js';
+import { productCosts } from './invoices/cost.js';
 
 // ---------- state ----------
 let leads             = [];
@@ -55,6 +69,10 @@ let dtcMarketing      = [];
 let dtcVariants       = [];
 let dtcPhaseDates     = [];
 let appUsers          = [];
+let necaLeads         = [];
+let dtcInvoices       = [];
+let dtcAliases        = [];
+let necaLoaded        = false;
 let myEmail           = '';
 let currentView = 'pipeline';
 let editingId   = null;
@@ -82,7 +100,7 @@ function getFiltered() {
 
 const ALL_VIEWS = [
   'pipeline', 'list', 'disc', 'followups', 'projects', 'leadDashboard', 'projectsDashboard',
-  'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings',
+  'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads', 'dtcInvoices', 'summary',
 ];
 
 // ---------- render ----------
@@ -98,16 +116,29 @@ function render() {
   if (currentView === 'projectsDashboard') renderProjectsDashboard(projects, projectActivity, projectStageDates);
   if (currentView === 'dtcProducts')       renderDtcProducts(dtcProducts);
   if (currentView === 'dtcCalendar')       renderDtcCalendar(dtcProducts);
-  if (currentView === 'dtcFinancials')     renderDtcFinancials(dtcFinancials, dtcProducts);
+  if (currentView === 'dtcFinancials')     renderDtcFinancials(dtcFinancials, dtcProducts, productCosts(dtcInvoices));
   if (currentView === 'dtcDashboard')      renderDtcDashboard(dtcProducts, dtcFinancials);
   if (currentView === 'dtcMarketing')      renderDtcMarketing(dtcMarketing, dtcProducts);
   if (currentView === 'settings')          renderSettings(appUsers, myEmail, settingsHandlers);
+  if (currentView === 'necaLeads')         renderNecaLeads(necaLeads, { onOpen: openNecaDetail, onMatch: handleNecaMatch, onAdd: openAddPotentialLead });
+  if (currentView === 'summary')           renderSummary({ leads, necaLeads, products: dtcProducts, financials: dtcFinancials, invoices: dtcInvoices, can: canView });
+  if (currentView === 'dtcInvoices')       renderDtcInvoices(dtcInvoices, dtcProducts, { onUpload: handleInvoiceUpload, onOpen: openInvoiceDetail });
+}
+
+const MOCK = import.meta.env.DEV && new URLSearchParams(location.search).has('mock');
+async function applyMock() {
+  const m = await import('./dev/mockData.js');
+  leads = m.mockLeads(); projects = m.mockProjects(leads); dtcProducts = m.mockDtcProducts(); dtcFinancials = m.mockDtcFinancials(dtcProducts);
+  dtcInvoices = m.mockInvoices(dtcProducts); necaLeads = m.mockNeca(leads); necaLoaded = true;
+  projectStageDates = []; projectActivity = []; leadActivity = []; dtcMarketing = []; dtcVariants = []; dtcPhaseDates = []; dtcAliases = []; appUsers = [];
+  render();
 }
 
 async function refresh() {
+  if (MOCK) return applyMock();
   // Stage-tracking / DTC tables are newer, optional migrations — don't let a not-yet-migrated
   // Supabase project take down leads/projects loading if they're missing.
-  const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes, dtcProductsRes, dtcFinancialsRes, dtcMarketingRes, dtcVariantsRes, dtcPhaseDatesRes, appUsersRes] = await Promise.all([
+  const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes, dtcProductsRes, dtcFinancialsRes, dtcMarketingRes, dtcVariantsRes, dtcPhaseDatesRes, appUsersRes, invoicesRes, aliasesRes] = await Promise.all([
     fetchLeads(), fetchProjects(),
     fetchStageDates().catch(() => []),
     fetchActivity().catch(() => []),
@@ -118,6 +149,8 @@ async function refresh() {
     fetchDtcVariants().catch(() => []),
     fetchDtcPhaseDates().catch(() => []),
     isAdmin() ? fetchAppUsers().catch(() => []) : Promise.resolve([]),
+    fetchInvoices().catch(() => []),
+    fetchAliases().catch(() => []),
   ]);
   leads = leadsRes; projects = projectsRes;
   projectStageDates = stageDatesRes; projectActivity = activityRes;
@@ -125,6 +158,7 @@ async function refresh() {
   dtcProducts = dtcProductsRes; dtcFinancials = dtcFinancialsRes; dtcMarketing = dtcMarketingRes;
   dtcVariants = dtcVariantsRes; dtcPhaseDates = dtcPhaseDatesRes;
   appUsers = appUsersRes;
+  dtcInvoices = invoicesRes; dtcAliases = aliasesRes;
   render();
 }
 
@@ -132,13 +166,14 @@ async function refresh() {
 function setView(view) {
   if (!canView(view)) return;
   currentView = view;
+  if ((view === 'necaLeads' || view === 'summary') && canView('necaLeads') && !necaLoaded) loadNecaLeads();
   const titles = {
     pipeline: 'Pipeline', list: 'All Leads', disc: 'DISC Guide', followups: 'Follow-ups',
     projects: 'B2B Projects', leadDashboard: 'Dashboard Lead Management',
     projectsDashboard: 'Dashboard B2B Projects',
     dtcProducts: 'DTC Products', dtcCalendar: 'DTC Calendar', dtcFinancials: 'DTC Financials',
-    dtcDashboard: 'DTC Dashboard', dtcMarketing: 'Marketing Operations',
-    settings: 'User Management',
+    dtcDashboard: 'DTC Dashboard', dtcMarketing: 'Marketing Operations', dtcInvoices: 'DTC Invoices', summary: 'Action Summary',
+    settings: 'User Management', necaLeads: 'Potential Leads',
   };
   document.getElementById('viewTitle').textContent = titles[view] || view;
   ALL_VIEWS.forEach(v => {
@@ -147,7 +182,9 @@ function setView(view) {
   document.querySelectorAll('#sidebarNav .nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
   });
-  const nonLeadViews = ['projects', 'leadDashboard', 'projectsDashboard', 'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings'];
+  const nonLeadViews = ['projects', 'leadDashboard', 'projectsDashboard', 'dtcProducts', 'dtcCalendar', 'dtcFinancials', 'dtcDashboard', 'dtcMarketing', 'settings', 'necaLeads', 'dtcInvoices', 'summary'];
+  const searchWrap = document.querySelector('.search-bar');
+  if (searchWrap) searchWrap.style.display = ['pipeline', 'list'].includes(view) ? '' : 'none';
   // Show/hide Add Lead button — not relevant outside the leads views
   const addBtn = document.getElementById('addLeadBtn');
   if (addBtn) addBtn.style.display = nonLeadViews.includes(view) ? 'none' : '';
@@ -173,6 +210,7 @@ function openDetail(id) {
     onStageChange: handleStageChange,
     onAddComment:  handleAddLeadComment,
     onDuplicate:   handleDuplicateLead,
+    onDraft:       openLeadDraft,
   });
 }
 
@@ -310,6 +348,7 @@ function openDtcProductDetail(id) {
     phaseDatesForDtcProduct(dtcPhaseDates, id),
     variantsForProduct(dtcVariants, id),
     {
+      cost:                productCosts(dtcInvoices).get(id) || null,
       onEdit:              openDtcProductEdit,
       onDelete:            handleDtcProductDelete,
       onDuplicate:         handleDuplicateDtcProduct,
@@ -413,6 +452,7 @@ async function handleDtcFinancialDelete(id) {
 
 // ---------- realtime ----------
 function subscribeRealtime() {
+  if (MOCK) return;
   if (!realtimeLeads)      realtimeLeads      = subscribeToLeads(supabase, refresh);
   if (!realtimeProjects)   realtimeProjects   = subscribeToProjects(refresh);
   if (!realtimeStageDates) realtimeStageDates = subscribeToStageDates(refresh);
@@ -430,6 +470,194 @@ function unsubscribeRealtime() {
   if (realtimeLeadActivity) { supabase.removeChannel(realtimeLeadActivity); realtimeLeadActivity = null; }
   if (realtimeDtc)        { supabase.removeChannel(realtimeDtc);        realtimeDtc        = null; }
   if (realtimeDtcPhaseDates) { supabase.removeChannel(realtimeDtcPhaseDates); realtimeDtcPhaseDates = null; }
+}
+
+// ---------- NECA potential leads (separate table, loaded on demand) ----------
+async function loadNecaLeads() {
+  if (MOCK) { if (currentView === 'necaLeads') render(); return; }
+  try { necaLeads = await fetchNecaLeads(); necaLoaded = true; }
+  catch (err) { necaLeads = []; alert('Could not load NECA leads (has migration_neca_leads.sql been run?): ' + err.message); }
+  if (currentView === 'necaLeads') render();
+}
+
+function openNecaDetail(id) {
+  const l = necaLeads.find(x => x.id === id);
+  if (!l) return;
+  const after = async () => { await refresh(); await loadNecaLeads(); };
+  renderNecaLeadDetail(l, {
+    linkedLead: l.linked_lead_id ? leads.find(x => x.id === l.linked_lead_id) : null,
+    suggestedLead: l.suggested_lead_id ? leads.find(x => x.id === l.suggested_lead_id) : null,
+    onSave: async (leadId, data) => {
+      try { await updateNecaLead(leadId, data); closeModal(); await loadNecaLeads(); }
+      catch (err) { alert('Could not save: ' + err.message); }
+    },
+    onDelete: async leadId => {
+      if (!confirm('Delete this NECA lead?')) return;
+      try { await deleteNecaLead(leadId); closeModal(); await loadNecaLeads(); }
+      catch (err) { alert('Could not delete: ' + err.message); }
+    },
+    onAddToPipeline: handleAddNecaToPipeline,
+    onDraft: openNecaDraft,
+    onOpenLead: leadId => { closeModal(); setView('pipeline'); openDetail(leadId); },
+    onLink: async n => {
+      try { await linkNecaToLead(n.id, n.suggested_lead_id); await after(); openNecaDetail(n.id); }
+      catch (err) { alert('Could not link: ' + err.message); }
+    },
+    onDismiss: async n => {
+      try { await dismissNecaSuggestion(n.id); await loadNecaLeads(); openNecaDetail(n.id); }
+      catch (err) { alert('Could not dismiss: ' + err.message); }
+    },
+    onUnlink: async n => {
+      if (!confirm('Unlink this company from the pipeline lead? Both records are kept.')) return;
+      try { await unlinkNecaFromLead(n.id, n.linked_lead_id); await after(); openNecaDetail(n.id); }
+      catch (err) { alert('Could not unlink: ' + err.message); }
+    },
+  });
+}
+
+// Copies a NECA company into the pipeline as a new lead. The NECA record is never moved or removed.
+async function handleAddNecaToPipeline(n) {
+  if (!confirm(`Copy "${n.company}" to the sales pipeline as a new lead?\nIt will also stay on the NECA list.`)) return;
+  const c = (n.contacts || []).find(x => x.name) || {};
+  const notes = [
+    `From NECA Potential Leads — ${n.tier ? 'Tier ' + n.tier + ', ' : ''}${n.score != null ? n.score + '/100' : 'not scored'}.`,
+    n.score_rationale && 'Why pursue: ' + n.score_rationale,
+    n.buying_signals && 'Buying signals: ' + n.buying_signals,
+    n.suggested_angle && 'Suggested angle: ' + n.suggested_angle,
+    n.top_executive_name && `Executive: ${n.top_executive_name}${n.top_executive_title ? ' (' + n.top_executive_title + ')' : ''}`,
+    n.website && 'Website: ' + n.website,
+  ].filter(Boolean).join('\n');
+  try {
+    const newId = await saveLead({
+      company: n.company, contact: c.name || '', title: c.title || '', phone: c.phone || '', email: c.email || '',
+      segment: 'High voltage contractor', source: n.source || 'NECA', disc: '', stage: 'Prospect',
+      est: '', units: '', proposalDate: '', followupDate: '', followupNote: '', notes, collected: '', cadenceTotal: '',
+    }, null);
+    await linkNecaToLead(n.id, newId);
+    await addLeadActivity(newId, { comment: 'Added to the pipeline from NECA Potential Leads.' });
+    await refresh();
+    await loadNecaLeads();
+    openNecaDetail(n.id);
+  } catch (err) { alert('Could not add to pipeline: ' + err.message); }
+}
+
+// ---------- outreach drafts: text only, copied by hand — no email integration ----------
+function senderName() {
+  const a = getMyAccess();
+  const n = (a?.full_name || '').trim();
+  return n ? n.split(/\s+/)[0] : '';
+}
+const firstSentence = t => String(t || '').split(/(?<=[.!?])\s/)[0].slice(0, 160);
+
+function openNecaDraft(l) {
+  const people = [
+    ...(l.top_executive_name ? [{ name: l.top_executive_name, title: l.top_executive_title }] : []),
+    ...(l.contacts || []).map(c => ({ name: c.name, title: c.title })),
+  ];
+  renderDraftModal({
+    company: l.company, contacts: people, angle: l.suggested_angle, signal: firstSentence(l.buying_signals),
+    executiveName: l.top_executive_name, sender: senderName(),
+    onMarkContacted: async () => { await markNecaContacted(l.id); await loadNecaLeads(); },
+  });
+}
+
+function openLeadDraft(lead) {
+  renderDraftModal({
+    company: lead.company, contacts: [{ name: lead.contact, title: lead.title }], angle: '', signal: '', executiveName: '', sender: senderName(),
+  });
+}
+
+function openAddPotentialLead() {
+  renderAddPotentialLead({
+    onSave: async (data, showError) => {
+      try { const id = await createPotentialLead(data); closeModal(); await loadNecaLeads(); openNecaDetail(id); }
+      catch (err) { showError('Could not add: ' + err.message); }
+    },
+  });
+}
+
+async function handleNecaMatch() {
+  try {
+    const r = await runNecaCrosslink();
+    await refresh();
+    await loadNecaLeads();
+    alert(`Matching done.\n${r.auto_linked} new exact match(es) linked automatically.\n${r.suggestions} possible match(es) to review (open a company marked "Possible match").`);
+  } catch (err) { alert('Could not match (has migration_neca_v2.sql been run?): ' + err.message); }
+}
+
+async function openNecaFromLead(necaId) {
+  closeModal();
+  if (!necaLoaded) await loadNecaLeads();
+  setView('necaLeads');
+  openNecaDetail(necaId);
+}
+
+// ---------- SKU sheet import (sizes and quantities per product) ----------
+function openSkuImport() {
+  renderSkuImport({
+    products: [...dtcProducts],
+    onSave: async items => {
+      let created = 0, added = 0, updated = 0;
+      for (const it of items) {
+        let id = it.productId;
+        if (!id) {
+          id = await saveDtcProduct({ name: it.productName, product_type: it.type, category: 'restock', phase: 'warehouse', manufacturer: 'print-theory',
+            units_ordered: it.variants.reduce((a, v) => a + (v.units_ordered || 0), 0) }, null);
+          await saveDtcFinancial({ dtc_product_id: id, product_name: it.productName, manufacturer: 'print-theory' }, null);
+          created++;
+        }
+        const r = await upsertVariantsBySku(id, it.variants);
+        added += r.added; updated += r.updated;
+      }
+      await refresh();
+      return `Done: ${items.length} products (${created} created), ${added} sizes added, ${updated} updated.`;
+    },
+  });
+}
+
+// ---------- DTC invoices (upload → extract → review → save) ----------
+async function handleInvoiceUpload(files) {
+  const items = [], failed = [];
+  const aiExtract = makeAiExtractor(supabase);
+  for (const file of files) {
+    try { items.push({ file, ...(await readInvoiceFile(file, { aiExtract })) }); }
+    catch (err) { failed.push(`${file.name}: ${err.message}`); }
+  }
+  if (failed.length) alert('Some files could not be read:\n\n' + failed.join('\n'));
+  if (!items.length) return;
+  renderInvoiceReview(items, {
+    products: [...dtcProducts], aliases: dtcAliases, invoices: dtcInvoices, financials: dtcFinancials,
+    onCreateProduct: async (name, manufacturer) => {
+      try {
+        const id = await saveDtcProduct({ name, manufacturer, phase: 'production', category: 'new-design' }, null);
+        await saveDtcFinancial({ dtc_product_id: id, product_name: name, manufacturer }, null);
+        return { id, name, order_ref: '' };
+      } catch (err) { alert('Could not create product: ' + err.message); return null; }
+    },
+    onSave: async ({ plan, parsed, file, hash, method, applyFin, depositPaidDates }) => {
+      await saveInvoicePlan({ plan, parsed, file, hash, method, createdBy: myEmail, products: dtcProducts, depositPaidDates, applyFin });
+      await refresh();
+    },
+    onDone: () => refresh(),
+  });
+}
+
+function openInvoiceDetail(id) {
+  const inv = dtcInvoices.find(i => i.id === id);
+  if (!inv) return;
+  renderInvoiceDetail(inv, dtcProducts, {
+    onDelete: async i => {
+      if (!confirm(`Delete ${i.doc_type} ${i.invoice_number}? Its lines and stored file are removed.`)) return;
+      try { await deleteInvoice(i); closeModal(); await refresh(); } catch (err) { alert('Could not delete: ' + err.message); }
+    },
+    onOpenFile: async i => {
+      try { window.open(await invoiceFileUrl(i.file_path), '_blank', 'noopener'); } catch (err) { alert('Could not open the file: ' + err.message); }
+    },
+    onAttach: async (i, file) => {
+      try { await attachOriginalFile(i, file, await sha256(await file.arrayBuffer())); await refresh(); openInvoiceDetail(i.id); }
+      catch (err) { alert('Could not attach the file: ' + err.message); }
+    },
+  });
 }
 
 // ---------- user management (admin) ----------
@@ -500,6 +728,9 @@ function showApp(user, access) {
   document.getElementById('loginShell').classList.add('hidden');
   document.getElementById('appShell').classList.remove('hidden');
   document.getElementById('topUserEmail').textContent = user.email;
+  const nameSource = (access?.full_name || user.email.split('@')[0]).replace(/[._]/g, ' ');
+  document.getElementById('userAvatar').textContent = nameSource.split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('') || '·';
+  document.getElementById('userRole').textContent = access?.role === 'admin' ? 'Administrator' : 'Team member';
   const isTestEnv = (import.meta.env.VITE_SUPABASE_URL || '').includes('ymzeklhdzpmaakvlxrkx');
   const banner = document.getElementById('testEnvBanner');
   if (banner) banner.classList.toggle('hidden', !isTestEnv);
@@ -535,12 +766,22 @@ function wireEvents() {
   document.getElementById('addDtcFinancialBtn').addEventListener('click', openDtcFinancialAdd);
   document.getElementById('searchInput').addEventListener('input', render);
 
+  { // wide modals (invoice review) must not leak their width into the next modal
+    const ov = document.getElementById('modalOverlay');
+    new MutationObserver(() => { if (ov.classList.contains('hidden')) document.getElementById('modalBox').removeAttribute('data-wide'); })
+      .observe(ov, { attributes: true, attributeFilter: ['class'] });
+  }
   document.getElementById('modalOverlay').addEventListener('click', e => {
     if (e.target === document.getElementById('modalOverlay')) closeModal();
   });
 
   // Delegated clicks for lead cards, project cards, backlog "Start project", and DTC records
   document.addEventListener('click', e => {
+    if (e.target.closest('#importSkuBtn')) { openSkuImport(); return; }
+    const goEl = e.target.closest('[data-go-view]');
+    if (goEl) { setView(goEl.dataset.goView); return; }
+    const necaEl = e.target.closest('[data-open-neca-lead]');
+    if (necaEl) { openNecaFromLead(necaEl.dataset.openNecaLead); return; }
     const startEl = e.target.closest('[data-start-project]');
     if (startEl) { openProjectFromLead(startEl.dataset.startProject); return; }
     const leadEl = e.target.closest('[data-open-lead]');
@@ -560,7 +801,12 @@ function wireEvents() {
 
 // ---------- bootstrap ----------
 async function bootstrap() {
+  initTheme();
   wireEvents();
+  initResponsive();
+  document.getElementById('themeBtn').addEventListener('click', toggleTheme);
+  window.addEventListener('themechange', () => render());
+  if (MOCK) { showApp({ email: 'demo@highvoltageindustries.com' }, { email: 'demo@highvoltageindustries.com', full_name: 'Demo Admin', role: 'admin', status: 'active', pages: [] }); return; }
   const inviteToken = captureInviteTokenFromUrl() || getPendingInviteToken();
   if (inviteToken) document.getElementById('loginInviteNote').classList.remove('hidden');
   onAuthChange(showApp, showLogin);

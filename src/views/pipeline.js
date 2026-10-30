@@ -16,7 +16,7 @@ function cardHtml(l) {
   return `<div class="lead-card${borderClass}" data-open-lead="${l.id}">
     <div class="lead-name">${l.contact || '—'}</div>
     <div class="lead-co">${l.company || '—'}</div>
-    <div class="lead-meta">${disc}${seg}${est}${fuTag}</div>
+    <div class="lead-meta">${disc}${seg}${est}${fuTag}${l.necaLeadId ? '<span class="badge" style="background:rgba(155,127,232,.2);color:var(--purple)">NECA</span>' : ''}</div>
   </div>`;
 }
 

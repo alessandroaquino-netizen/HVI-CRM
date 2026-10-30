@@ -257,3 +257,17 @@ export function subscribeToDtc(supabaseClient, onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_product_variants' }, onChange)
     .subscribe();
 }
+
+// Adds or updates size/SKU rows by SKU code; never deletes what is already there (unlike the manual editor, which replaces the set).
+export async function upsertVariantsBySku(productId, rows) {
+  const { data: existing, error } = await supabase.from('dtc_product_variants').select('id,sku').eq('dtc_product_id', productId);
+  if (error) throw error;
+  const bySku = new Map((existing || []).filter(v => v.sku).map(v => [v.sku, v.id]));
+  let added = 0, updated = 0;
+  for (const r of rows) {
+    const patch = { option_label: r.option_label || 'Default', sku: r.sku || null, units_ordered: r.units_ordered ?? null };
+    if (r.sku && bySku.has(r.sku)) { const u = await supabase.from('dtc_product_variants').update(patch).eq('id', bySku.get(r.sku)); if (u.error) throw u.error; updated++; }
+    else { const i = await supabase.from('dtc_product_variants').insert({ dtc_product_id: productId, ...patch }); if (i.error) throw i.error; added++; }
+  }
+  return { added, updated };
+}

@@ -1,6 +1,8 @@
+import { fill } from '../theme.js';
 import { DTC_PHASES, PRODUCT_TYPES, calcDropRisk, weeksUntilDrop } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { renderListDetail } from './modal.js';
+import { donut, columns, stack, panel } from '../viz.js';
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -97,13 +99,29 @@ export function renderDtcDashboard(products, financials) {
   <div class="section-divider" style="margin-bottom:1rem">
     <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Pipeline Overview</span>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:2rem">
+  <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:2rem">
     ${DTC_PHASES.map(ph => `
-      <div class="kpi-card" data-kpi="phase-${ph.id}" style="border-top:2px solid #${ph.color}">
+      <div class="kpi-card" data-kpi="phase-${ph.id}" style="border-top:4px solid ${fill(ph.color)}">
         <div class="kpi-label">${ph.label}</div>
         <div class="kpi-val" style="font-size:26px">${byPhase[ph.id] || 0}</div>
         <div class="kpi-sub">products</div>
       </div>`).join('')}
+  </div>
+
+  <!-- CHARTS -->
+  <div class="grid-3" style="margin-bottom:2rem">
+    ${panel('Products by phase', donut(DTC_PHASES.map(ph => ({ label: ph.label, value: byPhase[ph.id] || 0, color: fill(ph.color) })), { center: products.length, centerLabel: 'products' }))}
+    ${panel('Drops by month', columns((() => {
+      const out = [];
+      for (let i = 0; i < 6; i++) {
+        const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + i);
+        const key = d.toISOString().slice(0, 7);
+        out.push({ label: d.toLocaleDateString('en-US', { month: 'short' }), value: products.filter(p => p.drop_date && p.drop_date.slice(0, 7) === key).length, color: 'var(--viz-1)' });
+      }
+      return out;
+    })()), { sub: 'next 6 months' })}
+    ${panel('Money out', stack([{ label: `Paid in ${new Date().getFullYear()}`, value: totalPaidYear, display: '$' + Math.round(totalPaidYear).toLocaleString(), color: 'var(--viz-3)' },
+      { label: 'Still to pay', value: totalPending, display: '$' + Math.round(totalPending).toLocaleString(), color: 'var(--viz-1)' }]), { sub: 'all manufacturers' })}
   </div>
 
   <!-- RISK & DROPS -->
@@ -159,7 +177,7 @@ export function renderDtcDashboard(products, financials) {
                 <span style="font-size:12px;color:var(--text2)">${label}</span>
                 <div style="display:flex;align-items:center;gap:8px">
                   <div style="width:100px;height:4px;background:var(--bg4);border-radius:2px">
-                    <div style="width:${Math.min(100, count * 25)}%;height:100%;background:var(--accent);border-radius:2px"></div>
+                    <div style="width:${Math.min(100, count * 25)}%;height:100%;background:var(--brand);border-radius:2px"></div>
                   </div>
                   <span style="font-size:12px;font-family:var(--mono);color:var(--text);width:20px;text-align:right">${count}</span>
                 </div>
@@ -261,7 +279,7 @@ export function renderDtcDashboard(products, financials) {
       <div style="display:flex;align-items:center;gap:10px">
         <span style="font-size:12px;color:var(--text2);width:220px;flex-shrink:0">${mfrId.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</span>
         <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px">
-          <div style="width:${Math.min(100, (count / products.length) * 100)}%;height:100%;background:var(--accent);border-radius:3px;opacity:.7"></div>
+          <div style="width:${Math.min(100, (count / products.length) * 100)}%;height:100%;background:var(--brand);border-radius:3px;opacity:.7"></div>
         </div>
         <span style="font-size:12px;font-family:var(--mono);color:var(--text3);width:20px;text-align:right">${count}</span>
       </div>`).join('')}
