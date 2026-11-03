@@ -99,7 +99,7 @@ export function renderDtcDashboard(products, financials) {
   <div class="section-divider" style="margin-bottom:1rem">
     <span style="font-size:10px;font-family:var(--mono);color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Pipeline Overview</span>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:2rem">
+  <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin-bottom:2rem">
     ${DTC_PHASES.map(ph => `
       <div class="kpi-card" data-kpi="phase-${ph.id}" style="border-top:4px solid ${fill(ph.color)}">
         <div class="kpi-label">${ph.label}</div>

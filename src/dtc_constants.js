@@ -1,10 +1,11 @@
-// ─── DTC Phases (6 now — Sampling is its own phase) ──────────────────────
+// ─── DTC Phases (7: Sampling and Shipping are their own phases) ──────────────────────
 export const DTC_PHASES = [
   { id: 'idea',       label: 'Idea Phase',          color: '9B7FE8' },
   { id: 'design',     label: 'Design',               color: '5B9CF6' },
   { id: 'tech-pack',  label: 'Tech Pack',             color: 'F0C040' },
   { id: 'sampling',   label: 'Sampling',              color: 'E8874A' },
   { id: 'production', label: 'Production',            color: 'E05555' },
+  { id: 'shipping',   label: 'Shipping',              color: '2FA4B8' },
   { id: 'warehouse',  label: 'Warehouse',             color: '4CAF7D' },
 ];
 
@@ -168,8 +169,9 @@ export function calcDropRisk(product) {
     'tech-pack': ph.sampling + ph.production + ph.shipping,
     sampling:   ph.production + ph.shipping,
     production: ph.shipping,
+    shipping:   1,
     warehouse:  0,
-  } : { idea: totalWeeks, design: totalWeeks * 0.9, 'tech-pack': totalWeeks * 0.6, sampling: totalWeeks * 0.4, production: totalWeeks * 0.2, warehouse: 0 };
+  } : { idea: totalWeeks, design: totalWeeks * 0.9, 'tech-pack': totalWeeks * 0.6, sampling: totalWeeks * 0.4, production: totalWeeks * 0.2, shipping: 1, warehouse: 0 };
 
   const needed = weeksNeeded[product.phase] ?? 0;
   if (needed === 0) return 'ok';
@@ -246,4 +248,26 @@ export function blackoutWarnings(product) {
     if (hit || dropInside) out.push(`${b.label} (${b.start} to ${b.end}) overlaps this product's ${hit ? hit.label.toLowerCase() + ' window' : 'drop date'}. ${b.note}`);
   }
   return out;
+}
+
+// ─── Shipping (production → warehouse) ────────────────────────────────────
+export const CARRIERS = [
+  { id: 'fedex', label: 'FedEx', url: n => `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(n)}` },
+  { id: 'ups',   label: 'UPS',   url: n => `https://www.ups.com/track?tracknum=${encodeURIComponent(n)}` },
+  { id: 'dhl',   label: 'DHL',   url: n => `https://www.dhl.com/global-en/home/tracking/tracking-express.html?submit=1&tracking-id=${encodeURIComponent(n)}` },
+  { id: 'usps',  label: 'USPS',  url: n => `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(n)}` },
+  // 17TRACK looks the number up across carriers, so it also covers freight and anything not listed above.
+  { id: 'other', label: 'Other / freight', url: n => `https://t.17track.net/en#nums=${encodeURIComponent(n)}` },
+];
+
+export function trackingUrl(carrier, number) {
+  const n = (number || '').trim();
+  if (!n) return null;
+  return (CARRIERS.find(c => c.id === carrier) || CARRIERS[CARRIERS.length - 1]).url(n);
+}
+
+// Days from today until the estimated delivery date (negative = late). null when no date is set.
+export function daysToDelivery(product, today = new Date().toISOString().slice(0, 10)) {
+  if (!product.estimated_delivery_date) return null;
+  return Math.round((new Date(product.estimated_delivery_date) - new Date(today)) / 86400000);
 }

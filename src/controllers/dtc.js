@@ -27,6 +27,11 @@ export function rowToDtcProduct(r) {
     units_ordered:              r.units_ordered  != null ? Number(r.units_ordered)  : null,
     units_received:             r.units_received != null ? Number(r.units_received) : null,
     premarketing_started_at:    r.premarketing_started_at    || '',
+    // shipping (migration_dtc_shipping.sql)
+    carrier:                    r.carrier                    || '',
+    tracking_number:            r.tracking_number            || '',
+    shipped_date:               r.shipped_date               || '',
+    estimated_delivery_date:    r.estimated_delivery_date    || '',
     created_at:                 r.created_at                 || '',
   };
 }
@@ -56,6 +61,10 @@ function dtcProductToRow(p) {
     units_ordered:  p.units_ordered  != null && p.units_ordered  !== '' ? parseFloat(p.units_ordered)  : null,
     units_received: p.units_received != null && p.units_received !== '' ? parseFloat(p.units_received) : null,
     premarketing_started_at:    p.premarketing_started_at || null,
+    carrier:                    p.carrier          || null,
+    tracking_number:            p.tracking_number  || null,
+    shipped_date:               p.shipped_date     || null,
+    estimated_delivery_date:    p.estimated_delivery_date || null,
   };
 }
 
@@ -146,6 +155,21 @@ export async function saveDtcProduct(product, editingId = null) {
 export async function updateDtcPhase(id, phase) {
   const today = new Date().toISOString().slice(0, 10);
   const { error } = await supabase.from('dtc_products').update({ phase, phase_changed_at: today, last_activity: today }).eq('id', id);
+  if (error) throw error;
+}
+
+// Saves the shipping fields; `phase` (optional) moves the product at the same time, e.g. production → shipping.
+export async function saveDtcShipping(id, fields, phase = null) {
+  const today = new Date().toISOString().slice(0, 10);
+  const row = {
+    carrier:                 fields.carrier                 || null,
+    tracking_number:         (fields.tracking_number || '').trim() || null,
+    shipped_date:            fields.shipped_date            || null,
+    estimated_delivery_date: fields.estimated_delivery_date || null,
+    last_activity: today,
+  };
+  if (phase) { row.phase = phase; row.phase_changed_at = today; }
+  const { error } = await supabase.from('dtc_products').update(row).eq('id', id);
   if (error) throw error;
 }
 
