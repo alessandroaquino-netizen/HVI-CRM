@@ -1,4 +1,4 @@
-import { calcDropRisk, MANUFACTURER_BLACKOUTS, MANUFACTURERS } from '../dtc_constants.js';
+import { calcDropRisk, MANUFACTURER_BLACKOUTS, MANUFACTURERS, CARRIERS } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { getMyAccess } from '../access.js';
 
@@ -56,6 +56,8 @@ export function renderSummary(ctx) {
   // ── DTC ──────────────────────────────────────────────────────────────────
   if (ctx.can('dtcProducts')) {
     const risky = ctx.products.map(p => ({ p, r: calcDropRisk(p) })).filter(x => x.r === 'overdue' || x.r === 'at-risk').sort((a, b) => (a.p.drop_date || '').localeCompare(b.p.drop_date || ''));
+    const inTransit = ctx.products.filter(p => p.phase === 'shipping').sort((a, b) => (a.estimated_delivery_date || '9999').localeCompare(b.estimated_delivery_date || '9999'));
+    block('Shipments in transit', inTransit.map(p => { const late = p.estimated_delivery_date && p.estimated_delivery_date < today; return row(`data-open-dtc="${p.id}"`, p.name, [(CARRIERS.find(c => c.id === p.carrier)?.label || 'Carrier not set'), p.tracking_number || 'no tracking number'].join(' · '), p.estimated_delivery_date ? (late ? 'late · ' : 'ETA ') + formatDate(p.estimated_delivery_date) : 'no ETA', late ? 'var(--red)' : 'var(--accent)'); }), { goView: 'dtcProducts', goLabel: 'Open DTC products' });
     block('Products overdue or at risk', risky.map(({ p, r }) => row(`data-open-dtc="${p.id}"`, p.name, `${p.phase}${p.drop_date ? ' · drop ' + formatDate(p.drop_date) : ''}`, r, r === 'overdue' ? 'var(--red)' : 'var(--accent)')), { color: 'var(--red)', goView: 'dtcProducts', goLabel: 'Open DTC products' });
 
     const warnings = [];

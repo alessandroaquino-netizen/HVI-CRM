@@ -19,7 +19,7 @@ import {
   subscribeToActivity as subscribeToLeadActivity,
 } from './controllers/leadActivity.js';
 import {
-  fetchDtcProducts, saveDtcProduct, updateDtcPhase, deleteDtcProduct, startPremarketing,
+  fetchDtcProducts, saveDtcProduct, saveDtcShipping, updateDtcPhase, deleteDtcProduct, startPremarketing,
   fetchDtcFinancials, saveDtcFinancial, deleteDtcFinancial,
   fetchDtcMarketing, subscribeToDtc,
   fetchDtcVariants, saveDtcVariants, variantsForProduct, copyDtcVariants, upsertVariantsBySku,
@@ -356,6 +356,7 @@ function openDtcProductDetail(id) {
       onStartPremarketing: handleStartPremarketing,
       onSaveTimeline:      handleSaveDtcPhaseTimeline,
       onSaveVariants:      handleSaveDtcVariants,
+      onSaveShipping:      handleSaveDtcShipping,
     },
   );
 }
@@ -373,7 +374,9 @@ function openDtcProductEdit(id) {
 async function handleDtcProductSave(d) {
   try {
     const wasNew = !editingDtcProductId;
-    const id = await saveDtcProduct(d, editingDtcProductId);
+    // The form only holds some fields; merge with the stored product so edits do not blank the rest (shipping, pre-marketing start).
+    const existing = editingDtcProductId ? dtcProducts.find(x => x.id === editingDtcProductId) : null;
+    const id = await saveDtcProduct(existing ? { ...existing, ...d } : d, editingDtcProductId);
     if (wasNew) {
       // Seed the financials tab automatically so it doesn't require a separate manual step.
       await saveDtcFinancial({ dtc_product_id: id, product_name: d.name, manufacturer: d.manufacturer }, null);
@@ -393,6 +396,11 @@ async function handleDtcProductDelete(id) {
 async function handleDtcPhaseChange(id, phase) {
   try { await updateDtcPhase(id, phase); await refresh(); openDtcProductDetail(id); }
   catch (err) { alert('Could not update phase: ' + err.message); }
+}
+
+async function handleSaveDtcShipping(id, fields, phase) {
+  try { await saveDtcShipping(id, fields, phase); await refresh(); openDtcProductDetail(id); }
+  catch (err) { alert('Could not save shipping details: ' + err.message); }
 }
 
 async function handleStartPremarketing(id) {
