@@ -1,0 +1,120 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>HVI CRM - Install on iPhone</title>
+<style>
+@page{size:Letter;margin:0}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 -apple-system,"Helvetica Neue",Arial,sans-serif;color:#111}
+.page{width:8.5in;height:11in;padding:.55in .6in;page-break-after:always;position:relative;overflow:hidden}
+.cover{background:#0A0A0A;color:#fff;display:flex;flex-direction:column;justify-content:center}
+.cover img.logo{width:300px}.cover h1{font:800 46px/1.05 "Arial Narrow",Arial,sans-serif;text-transform:uppercase;margin:50px 0 14px}
+.cover h1 b{color:#FFB500}.cover p{font-size:17px;color:#ccc;max-width:5.5in}
+.cover .url{margin-top:36px;background:#1c1c1c;border:2px solid #FFB500;border-radius:10px;padding:14px 18px;font-size:18px;color:#FFB500;display:inline-block}
+.bar{height:6px;background:#FFB500;width:80px;margin-bottom:14px}
+h2{font:800 28px "Arial Narrow",Arial,sans-serif;text-transform:uppercase;margin:0 0 6px}
+.sub{color:#555;margin:0 0 18px}
+.step{display:flex;gap:30px;align-items:flex-start}
+.num{background:#FFB500;color:#000;font-weight:800;width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin-right:8px}
+.txt{flex:1;padding-top:6px}.txt h3{margin:0 0 8px;font-size:19px;display:flex;align-items:center}
+.txt li{margin-bottom:6px}.note{background:#FFF6DB;border-left:4px solid #FFB500;padding:9px 12px;border-radius:4px;margin-top:12px;font-size:13px}
+.phone{width:245px;height:500px;border:9px solid #111;border-radius:38px;background:#fff;position:relative;overflow:hidden;flex:none;box-shadow:0 6px 18px #0003}
+.phone .island{position:absolute;top:7px;left:50%;width:70px;height:20px;margin-left:-35px;background:#111;border-radius:12px;z-index:5}
+.status{height:34px;display:flex;justify-content:space-between;padding:10px 18px 0;font-size:11px;font-weight:700;background:#fff}
+.page-shot{position:absolute;top:34px;left:0;right:0;bottom:0;background:url(login.jpg) top/cover}
+.bar2{position:absolute;left:10px;right:10px;bottom:12px;height:46px;border-radius:24px;background:rgba(245,245,247,.92);box-shadow:0 2px 12px #0004;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:11px}
+.bar2 .dom{font-weight:600;color:#222;font-size:8.5px;white-space:nowrap}.bar2 .aa{font-size:10px;color:#333}.bar2 .menu{font-size:18px;line-height:1;padding:3px 7px;color:#222}
+.pop{position:absolute;right:12px;bottom:66px;width:170px;background:rgba(250,250,252,.97);border-radius:16px;box-shadow:0 6px 22px #0005;font-size:11px;overflow:hidden}
+.pop div{padding:9px 12px;display:flex;justify-content:space-between;border-bottom:1px solid #e6e6ea}
+.hl{outline:3px solid #e5222a;border-radius:8px;position:relative}
+.tag{position:absolute;background:#e5222a;color:#fff;font:700 10px Arial;padding:3px 7px;border-radius:10px;white-space:nowrap}
+.sheet{position:absolute;left:0;right:0;bottom:0;top:120px;background:#f2f2f7;border-radius:16px 16px 0 0;padding:12px;font-size:11px}
+.sheet .row{background:#fff;padding:9px 11px;display:flex;justify-content:space-between;border-bottom:1px solid #eee}
+.sheet .grp{border-radius:10px;overflow:hidden;margin-bottom:9px}
+.dim{position:absolute;inset:34px 0 0 0;background:rgba(0,0,0,.35)}
+.addcard{position:absolute;left:0;right:0;bottom:0;top:60px;background:#f2f2f7;border-radius:16px 16px 0 0;padding:12px;font-size:11px}
+.addhead{display:flex;justify-content:space-between;font-size:12px;margin-bottom:12px}
+.field{background:#fff;border-radius:10px;padding:10px;display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.field img{width:44px;height:44px;border-radius:10px}
+.home{background:linear-gradient(160deg,#1f3a5f,#5b2a6e 60%,#c0583a);height:100%;padding:46px 14px 0}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px 6px;text-align:center;color:#fff;font-size:8.5px}
+.grid i{display:block;width:44px;height:44px;border-radius:11px;background:#ffffff40;margin:0 auto 3px}
+.grid img{width:44px;height:44px;border-radius:11px;display:block;margin:0 auto 3px}
+.dock{position:absolute;left:10px;right:10px;bottom:10px;height:58px;border-radius:20px;background:#ffffff40}
+.tips li{margin-bottom:8px}table{border-collapse:collapse;width:100%;margin-top:8px}td,th{border:1px solid #ddd;padding:8px 10px;text-align:left;vertical-align:top}th{background:#f4f4f4}
+.foot{position:absolute;bottom:.35in;left:.6in;right:.6in;font-size:10px;color:#888;display:flex;justify-content:space-between}
+</style></head><body>
+
+<section class="page cover">
+ <img class="logo" src="logo-white.png">
+ <h1>Install <b>HVI CRM</b><br>on your iPhone</h1>
+ <p>Add the HVI CRM to your Home Screen so it opens like a regular app: full screen, with its own icon, in a few taps. It takes about one minute and works on any iPhone.</p>
+ <div class="url">https://highvoltageindustries-crm.netlify.app</div>
+ <p style="margin-top:30px;font-size:13px;color:#999">You need: an iPhone with a recent iOS, the Safari app, and your High Voltage Industries Google account.</p>
+</section>
+
+<section class="page">
+ <div class="bar"></div><h2>Steps 1 &amp; 2 · Open it in Safari and tap the menu</h2><p class="sub">Use <b>Safari</b> (the blue compass icon). Illustrations follow the latest iPhone and Safari design.</p>
+ <div class="step">
+  <div class="phone"><div class="island"></div><div class="status"><span>9:41</span><span>5G ▮▮▮</span></div><div class="page-shot"></div>
+   <div class="bar2"><span class="aa">AA</span><span class="dom">🔒 highvoltageindustries-crm.netlify.app</span><span class="menu hl">≡<span class="tag" style="right:-6px;top:-24px">② Tap the menu</span></span></div></div>
+  <div class="txt">
+   <h3><span class="num">1</span>Open the HVI CRM link in Safari</h3>
+   <ul><li>Open <b>Safari</b> and go to:<br><b>highvoltageindustries-crm.netlify.app</b></li><li>Sign in once with <b>Continue with Google</b> using your High Voltage Industries account.</li></ul>
+   <h3 style="margin-top:22px"><span class="num">2</span>Tap the menu button in the bottom bar</h3>
+   <ul><li>Look at the <b>bar at the bottom of the screen</b>. Next to the page address there is a <b>menu button</b> (three lines or three dots, depending on your iOS version), marked in red.</li><li>Tap it. A menu opens above the bar.</li><li>If the bottom bar is hidden, tap the very bottom edge of the screen or scroll up a little.</li></ul>
+   <div class="note"><b>Tip:</b> if you opened the link from Gmail, Slack or another app, first tap <b>Open in Safari</b>. The Add to Home Screen option only appears in Safari itself.</div>
+  </div></div>
+ <div class="foot"><span>HVI CRM · iPhone install guide</span><span>2</span></div>
+</section>
+
+<section class="page">
+ <div class="bar"></div><h2>Steps 3 &amp; 4 · Share, then Add to Home Screen</h2><p class="sub">The first menu leads to the share sheet, where the option is further down.</p>
+ <div class="step">
+  <div class="phone"><div class="island"></div><div class="status"><span>9:41</span><span>5G ▮▮▮</span></div><div class="page-shot"></div><div class="dim"></div>
+   <div class="pop"><div><span>New Tab</span><span>＋</span></div><div><span>Find on Page</span><span>🔍</span></div><div class="hl" style="background:#fff;border-radius:6px;margin:2px"><b>Share</b><span>⬆</span><span class="tag" style="left:-10px;top:-20px">③ Tap Share</span></div><div><span>Add Bookmark</span><span>📖</span></div></div>
+   <div class="bar2"><span class="aa">AA</span><span class="dom">🔒 highvoltageindustries-crm.netlify.app</span><span class="menu">≡</span></div></div>
+  <div class="phone"><div class="island"></div><div class="status"><span>9:41</span><span>5G ▮▮▮</span></div><div class="page-shot"></div><div class="dim"></div>
+   <div class="sheet" style="top:70px"><div class="grp"><div class="row"><b>HVI CRM</b><span>✕</span></div></div>
+    <div class="grp"><div class="row"><span>Copy</span><span>⧉</span></div><div class="row"><span>Add to Bookmarks</span><span>📖</span></div><div class="row"><span>Find on Page</span><span>🔍</span></div>
+     <div class="row hl" style="background:#fff"><b>Add to Home Screen</b><span>⊞</span><span class="tag" style="right:6px;top:-20px">④ Scroll, then tap</span></div><div class="row"><span>Markup</span><span>✎</span></div></div>
+    <div style="text-align:center;color:#888;font-size:10px">↕ swipe up to scroll the list</div></div></div>
+ </div>
+ <div class="step" style="margin-top:18px"><div class="txt">
+   <h3><span class="num">3</span>Tap “Share”</h3>
+   <ul><li>In the menu that opened, tap <b>Share</b> (square with an arrow pointing up).</li></ul>
+   <h3 style="margin-top:14px"><span class="num">4</span>Scroll down and tap “Add to Home Screen”</h3>
+   <ul><li>Swipe the share sheet <b>up</b> until you see <b>Add to Home Screen</b> (square with a plus sign). On an iPhone set to Portuguese it reads <b>Adicionar à Tela de Início</b>.</li><li>Tap it.</li></ul>
+   <div class="note"><b>Cannot find it?</b> Scroll to the very bottom of the share sheet and tap <b>Edit Actions…</b>, then add <b>Add to Home Screen</b>. Make sure you are in Safari and not in another app's built-in browser.</div></div></div>
+ <div class="foot"><span>HVI CRM · iPhone install guide</span><span>3</span></div>
+</section>
+
+<section class="page">
+ <div class="bar"></div><h2>Steps 5 &amp; 6 · Name it, add it, open it</h2><p class="sub">Confirm the name, then find the new icon.</p>
+ <div class="step">
+  <div class="phone"><div class="island"></div><div class="status"><span>9:41</span><span>5G ▮▮▮</span></div><div class="page-shot"></div><div class="dim"></div>
+   <div class="addcard"><div class="addhead"><span style="color:#0a7cff">Cancel</span><b>Add to Home Screen</b><span class="hl" style="color:#0a7cff;font-weight:700;padding:1px 6px">Add<span class="tag" style="right:-4px;top:-22px">⑤ Tap Add</span></span></div>
+    <div class="field"><img src="icon-192.png"><div><b>HVI CRM</b><div style="color:#888;font-size:9px">highvoltageindustries-crm.netlify.app</div></div></div>
+    <div style="color:#666;font-size:10px;padding:4px">An icon will be added to your Home Screen so you can quickly access this website.</div></div></div>
+  <div class="phone"><div class="island"></div><div class="home"><div class="grid"><div><i></i>Mail</div><div><i></i>Calendar</div><div><i></i>Photos</div><div><i></i>Camera</div><div><i></i>Maps</div><div><i></i>Notes</div><div><i></i>Drive</div>
+    <div class="hl" style="border-radius:12px"><img src="icon-192.png">HVI CRM<span class="tag" style="left:-6px;top:-22px">⑥ Your app</span></div></div><div class="dock"></div></div></div>
+ </div>
+ <div class="step" style="margin-top:18px"><div class="txt">
+   <h3><span class="num">5</span>Check the name and tap “Add”</h3>
+   <ul><li>The name is pre-filled as <b>HVI CRM</b>. You can change it if you like.</li><li>Tap <b>Add</b> in the top-right corner.</li></ul>
+   <h3 style="margin-top:14px"><span class="num">6</span>Open HVI CRM from your Home Screen</h3>
+   <ul><li>Find the black <b>HVI CRM</b> icon (it may be on your last Home Screen page).</li><li>Tap it: the CRM opens <b>full screen</b>, without the Safari address bar, like an app.</li><li>Tip: press and hold the icon and drag it to your first page or into your Dock.</li></ul></div></div>
+ <div class="foot"><span>HVI CRM · iPhone install guide</span><span>4</span></div>
+</section>
+
+<section class="page">
+ <div class="bar"></div><h2>Tips &amp; troubleshooting</h2><p class="sub">Things the team asked about most often.</p>
+ <table><tr><th style="width:30%">Question</th><th>Answer</th></tr>
+ <tr><td>I am asked to sign in again</td><td>Use <b>Continue with Google</b> with your High Voltage Industries account. You may need to sign in once inside the app; after that it remembers you.</td></tr>
+ <tr><td>Will I get updates?</td><td>Yes, automatically. The app always loads the latest version of the CRM; there is nothing to update in the App Store.</td></tr>
+ <tr><td>Is data synced with my computer?</td><td>Yes. It is the same CRM and the same data, only in a phone-friendly layout.</td></tr>
+ <tr><td>Dark mode</td><td>Open the menu (☰ at the top-left of the CRM) and tap the sun/moon button to switch between light and dark.</td></tr>
+ <tr><td>Where is the CRM menu?</td><td>Tap the <b>☰</b> button at the top-left of the CRM to open the navigation (Pipeline, Leads, Projects, DTC, and more).</td></tr>
+ <tr><td>The option is missing</td><td>Open the link in Safari (not inside Gmail, Slack or another app) and make sure your iPhone is up to date.</td></tr>
+ <tr><td>How do I remove it?</td><td>Press and hold the icon, tap <b>Remove App</b>, then <b>Delete from Home Screen</b>. Your data stays in the CRM.</td></tr>
+ <tr><td>Using Chrome on iPhone</td><td>Recent iPhone versions can also do this from Chrome (Share → Add to Home Screen), but Safari is recommended.</td></tr></table>
+ <div class="note" style="margin-top:20px"><b>Link:</b> https://highvoltageindustries-crm.netlify.app<br><b>Need help?</b> Contact Alessandro Aquino and include a screenshot of where you got stuck.</div>
+ <div class="foot"><span>HVI CRM · iPhone install guide</span><span>5</span></div>
+</section>
+</body></html>

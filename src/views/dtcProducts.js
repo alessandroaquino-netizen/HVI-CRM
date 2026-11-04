@@ -1,4 +1,4 @@
-import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, blackoutWarnings, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct } from '../dtc_constants.js';
+import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, blackoutWarnings, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct, CARRIERS, trackingUrl, daysToDelivery } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { renderListDetail } from './modal.js';
 import { ink, fill } from '../theme.js';
@@ -41,6 +41,11 @@ function productCard(p) {
   const preMktBadge = p.premarketing_started_at
     ? `<span style="font-size:9px;font-family:var(--mono);padding:1px 5px;border-radius:3px;background:rgba(155,127,232,.2);color:var(--purple)">Pre-mkt</span>`
     : '';
+  const carrierLabel = CARRIERS.find(c => c.id === p.carrier)?.label;
+  const dd = daysToDelivery(p);
+  const shipLine = p.phase === 'shipping' ? `<div style="margin-top:6px;font-size:11px;line-height:1.5;color:var(--text2)">
+      <div>🚚 ${esc(carrierLabel || 'Carrier not set')}${p.tracking_number ? ` · <span style="font-family:var(--mono)">${esc(p.tracking_number)}</span>` : ' · <span style="color:var(--red)">no tracking #</span>'}</div>
+      <div style="color:${dd !== null && dd < 0 ? 'var(--red)' : 'var(--text2)'}">${p.estimated_delivery_date ? `ETA ${formatDate(p.estimated_delivery_date)} (${dd < 0 ? Math.abs(dd) + 'd late' : dd === 0 ? 'today' : dd + 'd'})` : 'No ETA yet'}</div></div>` : '';
   return `<div class="lead-card" data-open-dtc="${p.id}" style="${riskBorder(risk)}">
     <div class="lead-name">${p.name}</div>
     <div class="lead-co" style="font-size:10px">${mfr ? mfr.label : (p.manufacturer || '—')}</div>
@@ -50,6 +55,7 @@ function productCard(p) {
       ${riskTag(risk)}
       ${p.drop_date ? `<span style="font-size:9px;font-family:var(--mono);color:${weeks!==null&&weeks<4?'var(--red)':'var(--text3)'}">Drop: ${formatDate(p.drop_date)}${weeks!==null?` (${weeks}w)`:''}</span>` : ''}
     </div>
+    ${shipLine}
     ${payBadge||preMktBadge ? `<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">${payBadge}${preMktBadge}</div>` : ''}
   </div>`;
 }
@@ -72,7 +78,7 @@ export function renderDtcProducts(products) {
   const filtered  = getDtcFiltered(products);
   const atRisk    = products.filter(p => calcDropRisk(p) === 'at-risk').length;
   const overdue   = products.filter(p => calcDropRisk(p) === 'overdue').length;
-  const ordered   = products.filter(p => ['sampling','production','warehouse'].includes(p.phase)).length;
+  const ordered   = products.filter(p => ['sampling','production','shipping','warehouse'].includes(p.phase)).length;
   const nextDrops = products.filter(p => p.drop_date && p.drop_date >= new Date().toISOString().slice(0,10)).sort((a,b) => a.drop_date.localeCompare(b.drop_date)).slice(0,3);
 
   let html = `
@@ -104,7 +110,7 @@ export function renderDtcProducts(products) {
       <span style="margin-left:auto;font-size:11px;color:var(--text3)">${filtered.length} of ${products.length}</span>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:start">
+    <div class="pipeline-grid dtc-board">
       ${DTC_PHASES.map(phase => {
         const pp = filtered.filter(p => p.phase === phase.id);
         return `<div class="stage-col">
@@ -124,7 +130,7 @@ export function renderDtcProducts(products) {
   const dtcRow = p => ({ id: p.id, type: 'dtc', primary: p.name, secondary: [p.phase, p.manufacturer].filter(Boolean).join(' · '), value: p.drop_date ? formatDate(p.drop_date) : '' });
   const overdueList = products.filter(p => calcDropRisk(p) === 'overdue');
   const atRiskList  = products.filter(p => calcDropRisk(p) === 'at-risk');
-  const orderedList = products.filter(p => ['sampling','production','warehouse'].includes(p.phase));
+  const orderedList = products.filter(p => ['sampling','production','shipping','warehouse'].includes(p.phase));
   const drilldowns = {
     total:     () => renderListDetail('All Products', `${products.length} total`, products.map(dtcRow)),
     ordered:   () => renderListDetail('Products Ordered', 'Sampling & beyond', orderedList.map(dtcRow)),
@@ -156,7 +162,7 @@ function variantRowHtml(v = {}) {
 }
 
 // ─── Detail modal ─────────────────────────────────────────────────────────
-export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, onDelete, onDuplicate, onPhaseChange, onStartPremarketing, onSaveTimeline, onSaveVariants }) {
+export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, onDelete, onDuplicate, onPhaseChange, onStartPremarketing, onSaveTimeline, onSaveVariants, onSaveShipping }) {
   const risk   = calcDropRisk(p);
   const weeks  = weeksUntilDrop(p);
   const days   = daysInPhase(p);
@@ -221,7 +227,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
       <div class="detail-field"><div class="lbl">Cost per unit (${cost.basisUnits} units)</div><div class="val" style="color:var(--accent)">${cost.perUnit != null ? '$' + cost.perUnit.toFixed(2) : '—'}</div></div>
     </div>` : '';
 
-  const samplingSection = p.phase === 'sampling' || ['production','warehouse'].includes(p.phase) ? `
+  const samplingSection = p.phase === 'sampling' || ['production','shipping','warehouse'].includes(p.phase) ? `
     <div class="section-divider" style="margin-top:1rem">Sampling Details</div>
     <div class="detail-grid" style="margin-top:10px">
       <div class="detail-field"><div class="lbl">Manufacturer order date</div><div class="val">${p.manufacturer_order_date?formatDate(p.manufacturer_order_date):'—'}</div></div>
@@ -234,6 +240,30 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
     <div class="detail-grid" style="margin-top:10px">
       <div class="detail-field"><div class="lbl">Units ordered</div><div class="val">${p.units_ordered||'—'}</div></div>
       <div class="detail-field"><div class="lbl">Units received</div><div class="val" style="color:${p.units_received&&p.units_ordered&&p.units_received<p.units_ordered?'var(--red)':'var(--text)'}">${p.units_received||'—'}${p.units_received&&p.units_ordered&&p.units_received<p.units_ordered?' ⚠ Discrepancy':''}</div></div>
+    </div>` : '';
+
+  const trackUrl = trackingUrl(p.carrier, p.tracking_number);
+  const dDays = daysToDelivery(p);
+  const etaNote = dDays === null ? '' : dDays < 0 ? `<span style="color:var(--red)"> · ${Math.abs(dDays)} days late</span>` : dDays === 0 ? ' · arrives today' : ` · in ${dDays} days`;
+  const inShipping = p.phase === 'shipping';
+  const shippingSection = ['production', 'shipping', 'warehouse'].includes(p.phase) ? `
+    <div class="section-divider" style="margin-top:1rem">Shipping <span style="font-weight:400;text-transform:none;letter-spacing:0">— production to warehouse</span></div>
+    ${p.tracking_number ? `<div class="notes-display" style="margin-top:10px;white-space:normal;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between">
+      <div><div class="lbl" style="font-size:11px;color:var(--text3)">${esc(CARRIERS.find(c => c.id === p.carrier)?.label || 'Tracking number')}</div>
+        <div style="font-family:var(--mono);font-size:15px">${esc(p.tracking_number)}</div>
+        ${p.estimated_delivery_date ? `<div style="font-size:12px;color:var(--text2);margin-top:2px">ETA ${formatDate(p.estimated_delivery_date)}${etaNote}</div>` : ''}</div>
+      <div style="display:flex;gap:6px"><button class="btn btn-sm" id="dtcCopyTrackBtn">Copy number</button><a class="btn btn-sm btn-accent" href="${trackUrl}" target="_blank" rel="noopener">Track shipment ↗</a></div>
+    </div>` : ''}
+    <div class="form-grid" style="margin-top:10px">
+      <div class="form-row"><label>Carrier</label><select id="ship_carrier"><option value="">Select carrier</option>${CARRIERS.map(c => `<option value="${c.id}" ${p.carrier === c.id ? 'selected' : ''}>${c.label}</option>`).join('')}</select></div>
+      <div class="form-row"><label>Tracking number</label><input id="ship_tracking" value="${esc(p.tracking_number)}" placeholder="e.g. 7712 3456 7890" autocomplete="off"></div>
+      <div class="form-row"><label>Shipped on</label><input id="ship_date" type="date" value="${p.shipped_date || ''}"></div>
+      <div class="form-row"><label>Estimated delivery</label><input id="ship_eta" type="date" value="${p.estimated_delivery_date || ''}"></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="btn btn-sm" id="dtcSaveShipBtn">Save shipping details</button>
+      ${p.phase === 'production' ? `<button class="btn btn-sm btn-accent" id="dtcMarkShippedBtn">🚚 Mark as shipped</button>` : ''}
+      ${inShipping ? `<button class="btn btn-sm btn-accent" id="dtcMarkReceivedBtn">📦 Received at warehouse</button>` : ''}
     </div>` : '';
 
   const overlay = document.getElementById('modalOverlay');
@@ -280,6 +310,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
       ${timelineSection}
       ${costSection}
       ${samplingSection}
+      ${shippingSection}
       ${warehouseSection}
       ${variantsSection}
       ${p.notes?`<div style="margin-top:1rem"><div class="section-divider">Notes</div><div class="notes-display" style="margin-top:8px">${p.notes}</div></div>`:''}
@@ -293,6 +324,22 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
   document.querySelectorAll('[data-dtc-phase]').forEach(btn => btn.addEventListener('click', () => onPhaseChange(p.id, btn.dataset.dtcPhase)));
   const pmBtn = document.getElementById('dtcPreMktBtn');
   if (pmBtn) pmBtn.addEventListener('click', () => onStartPremarketing(p.id));
+
+  const shipFields = () => ({
+    carrier: document.getElementById('ship_carrier')?.value || '',
+    tracking_number: document.getElementById('ship_tracking')?.value || '',
+    shipped_date: document.getElementById('ship_date')?.value || '',
+    estimated_delivery_date: document.getElementById('ship_eta')?.value || '',
+  });
+  document.getElementById('dtcSaveShipBtn')?.addEventListener('click', () => onSaveShipping(p.id, shipFields(), null));
+  document.getElementById('dtcMarkShippedBtn')?.addEventListener('click', () => {
+    const f = shipFields();
+    onSaveShipping(p.id, { ...f, shipped_date: f.shipped_date || new Date().toISOString().slice(0, 10) }, 'shipping');
+  });
+  document.getElementById('dtcMarkReceivedBtn')?.addEventListener('click', () => onSaveShipping(p.id, shipFields(), 'warehouse'));
+  document.getElementById('dtcCopyTrackBtn')?.addEventListener('click', e => {
+    navigator.clipboard?.writeText(p.tracking_number).then(() => { e.target.textContent = 'Copied ✓'; setTimeout(() => { e.target.textContent = 'Copy number'; }, 1500); });
+  });
 
   const saveTimelineBtn = document.getElementById('dtcSaveTimelineBtn');
   if (saveTimelineBtn) saveTimelineBtn.addEventListener('click', () => {
@@ -332,7 +379,7 @@ export function renderDtcProductForm(p = {}, editingId, { onSave }) {
   const overlay = document.getElementById('modalOverlay');
   const box = document.getElementById('modalBox');
   const opt = (val, cur, label) => `<option value="${val}" ${cur===val?'selected':''}>${label}</option>`;
-  const isSampling = p.phase === 'sampling' || ['production','warehouse'].includes(p.phase||'');
+  const isSampling = p.phase === 'sampling' || ['production','shipping','warehouse'].includes(p.phase||'');
   const isWarehouse = p.phase === 'warehouse';
 
   box.innerHTML = `
