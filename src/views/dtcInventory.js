@@ -2,7 +2,7 @@
 import { saveInventoryRow, addInventoryRow, deleteInventoryRow, startCounting, fetchInventoryEvents } from '../controllers/inventory.js';
 import { rowGaps, productTotals, costPerUnit } from '../inventory/reconcile.js';
 import { formatDate } from '../utils.js';
-import { stack, panel } from '../viz.js';
+import { stack } from '../viz.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const COLS = [
@@ -22,6 +22,9 @@ const fmt = v => (v == null ? '—' : v.toLocaleString());
 export function renderDtcInventory() {
   const el = document.getElementById('dtcInventoryView'); if (!el) return;
   const { products, inventory, variants, costs } = ctx.get();
+  // Keep the cursor where it was: saving a count reloads the list, and the next box (Tab) must stay focused.
+  const ae = document.activeElement;
+  const focusKey = ae && el.contains(ae) ? { id: ae.id, row: ae.closest('[data-inv-row]')?.dataset.invRow, field: ae.dataset?.countInput || (ae.matches?.('[data-inv-note]') ? 'note' : null), pos: ae.selectionStart ?? null } : null;
   const byProduct = new Map(); inventory.forEach(r => { (byProduct.get(r.dtc_product_id) || byProduct.set(r.dtc_product_id, []).get(r.dtc_product_id)).push(r); });
   const relevant = products.filter(p => byProduct.has(p.id) || STAGES.includes(p.phase));
   const q = filter.q.toLowerCase();
@@ -49,7 +52,12 @@ export function renderDtcInventory() {
     <div class="mo-note">Leave a count empty until someone has actually counted it: an empty box means “not counted yet”, a 0 means “counted, none”. Gaps are only shown when both numbers were entered. The cost per unit uses sellable units once they are counted.</div>
     ${rows.length ? rows.map(x => productBlock(x, variants, costs)).join('') : '<div style="color:var(--text3)">No products to show.</div>'}`;
 
-  el.querySelector('#invQ').addEventListener('input', e => { filter.q = e.target.value; renderDtcInventory(); el.querySelector('#invQ').focus(); const v = el.querySelector('#invQ'); v.setSelectionRange(v.value.length, v.value.length); });
+  if (focusKey) {
+    const target = focusKey.id ? el.querySelector('#' + focusKey.id)
+      : focusKey.row ? el.querySelector(`[data-inv-row="${focusKey.row}"] ${focusKey.field === 'note' ? '[data-inv-note]' : `[data-count-input="${focusKey.field}"]`}`) : null;
+    if (target) { target.focus(); if (focusKey.pos != null && target.setSelectionRange && target.type !== 'number') try { target.setSelectionRange(focusKey.pos, focusKey.pos); } catch { /* number inputs */ } }
+  }
+  el.querySelector('#invQ').addEventListener('input', e => { filter.q = e.target.value; renderDtcInventory(); });
   el.querySelector('#invGaps').addEventListener('change', e => { filter.gaps = e.target.checked; renderDtcInventory(); });
   el.querySelector('#invStage').addEventListener('change', e => { filter.stage = e.target.value; renderDtcInventory(); });
   el.querySelectorAll('[data-toggle-inv]').forEach(h => h.addEventListener('click', () => { const id = h.dataset.toggleInv; open.has(id) ? open.delete(id) : open.add(id); renderDtcInventory(); }));

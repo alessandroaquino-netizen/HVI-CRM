@@ -2,17 +2,11 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import * as E from '../src/dropflow/engine.js';
+import { parseTemplates } from '../src/dropflow/seed.js';
 
 // Read the seeded templates straight out of the migration so the test cannot drift from the SQL.
 const sql = fs.readFileSync(new URL('../migration_dropflow.sql', import.meta.url), 'utf8');
-const block = sql.slice(sql.indexOf('INSERT INTO drop_task_templates'), sql.indexOf('ON CONFLICT (key) DO NOTHING;', sql.indexOf('INSERT INTO drop_task_templates')));
-const templates = [];
-for (const line of block.split('\n')) {
-  const m = line.match(/^\s*\('([a-z_]+)',\s*'(\w+)',\s*'((?:[^']|'')*)',\s*'(\w+)',\s*(-?\d+),\s*'\{([^}]*)\}',\s*'\{([^}]*)\}',\s*(NULL|'\w+'),\s*(NULL|'\w+'),\s*(\d+)/);
-  if (!m) continue;
-  templates.push({ key: m[1], phase: m[2], title: m[3].replace(/''/g, "'"), owner_role: m[4], offset_days: +m[5],
-    depends_on: m[6] ? m[6].split(',') : [], na_for: m[7] ? m[7].split(',') : [], only_if: m[8] === 'NULL' ? null : m[8].replace(/'/g, ''), blocker_group: m[9] === 'NULL' ? null : m[9].replace(/'/g, ''), sort: +m[10] });
-}
+const templates = parseTemplates(sql);
 assert.ok(templates.length >= 50, `parsed ${templates.length} templates`);
 const keys = new Set(templates.map(t => t.key));
 for (const t of templates) for (const d of t.depends_on) assert.ok(keys.has(d), `${t.key} depends on unknown ${d}`);

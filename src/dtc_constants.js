@@ -267,7 +267,9 @@ export function trackingUrl(carrier, number) {
 }
 
 // Days from today until the estimated delivery date (negative = late). null when no date is set.
+export const bestEta = product => product.tracking_eta || product.estimated_delivery_date || '';
 export function daysToDelivery(product, today = new Date().toISOString().slice(0, 10)) {
-  if (!product.estimated_delivery_date) return null;
-  return Math.round((new Date(product.estimated_delivery_date) - new Date(today)) / 86400000);
+  const eta = bestEta(product);
+  if (!eta) return null;
+  return Math.round((new Date(eta) - new Date(today)) / 86400000);
 }

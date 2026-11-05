@@ -29,3 +29,14 @@ assert.deepEqual(r.tracking.map(t => `${t.carrier}:${t.number}`).sort(), ['dhl:4
 assert.equal(findTracking('UPS 1Z999AA10123456784').at(0).carrier, 'ups');
 assert.deepEqual(parseEmailText('Thanks, talk soon!').events, []);
 console.log('email dates: all checks passed', r.events.length, 'events');
+
+// planChanges maps events onto the right fields (view helper, pure)
+const { planChanges } = await import('../src/emailDates/plan.js');
+{
+  const plan = planChanges({ id: 'p' }, [{ phase_key: 'production', planned_start: '2026-10-01', planned_end: null }],
+    { events: [{ kind: 'production_start', date: '2026-10-12' }, { kind: 'shipped', date: '2026-11-10' }, { kind: 'delivery_eta', date: '2026-11-18' }, { kind: 'order_placed', date: '2026-10-02' }], tracking: { number: '771', carrier: 'fedex' }, movePhase: 'shipping' });
+  assert.equal(plan.fields.shipped_date, '2026-11-10'); assert.equal(plan.fields.tracking_number, '771'); assert.equal(plan.fields.manufacturer_order_date, '2026-10-02'); assert.equal(plan.phaseTo, 'shipping');
+  assert.deepEqual(plan.phaseRows.find(r => r.phase_key === 'production'), { phase_key: 'production', planned_start: '2026-10-12', planned_end: null });
+  assert.equal(plan.phaseRows.find(r => r.phase_key === 'shipping').planned_end, '2026-11-18');
+  console.log('email dates: plan checks passed');
+}

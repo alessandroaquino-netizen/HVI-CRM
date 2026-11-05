@@ -17,6 +17,7 @@ export const ACCESS_CATALOG = [
     { id: 'dtcFinancials',     label: 'DTC Financials' },
     { id: 'dtcInvoices',       label: 'DTC Invoices' },
     { id: 'dtcDashboard',      label: 'DTC Dashboard' },
+    { id: 'dtcInventory',      label: 'Inventory' },
     { id: 'dtcMarketing',      label: 'Marketing Ops' },
   ]},
   { module: 'Resources', pages: [

@@ -32,6 +32,13 @@ export function rowToDtcProduct(r) {
     tracking_number:            r.tracking_number            || '',
     shipped_date:               r.shipped_date               || '',
     estimated_delivery_date:    r.estimated_delivery_date    || '',
+    tracking_status:            r.tracking_status            || '',
+    tracking_status_detail:     r.tracking_status_detail     || '',
+    tracking_eta:               r.tracking_eta               || '',
+    tracking_location:          r.tracking_location          || '',
+    tracking_events:            Array.isArray(r.tracking_events) ? r.tracking_events : [],
+    tracking_delivered_at:      r.tracking_delivered_at      || '',
+    tracking_checked_at:        r.tracking_checked_at        || '',
     created_at:                 r.created_at                 || '',
   };
 }
@@ -173,6 +180,12 @@ export async function saveDtcShipping(id, fields, phase = null) {
   if (error) throw error;
 }
 
+export async function updateDtcDropDate(id, date) {
+  const today = new Date().toISOString().slice(0, 10);
+  const { error } = await supabase.from('dtc_products').update({ drop_date: date || null, last_activity: today }).eq('id', id);
+  if (error) throw error;
+}
+
 export async function startPremarketing(id) {
   const today = new Date().toISOString().slice(0, 10);
   const { error } = await supabase.from('dtc_products').update({ premarketing_started_at: today, last_activity: today }).eq('id', id);
@@ -279,6 +292,7 @@ export function subscribeToDtc(supabaseClient, onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_financials' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_marketing' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_product_variants' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_inventory' }, onChange)
     .subscribe();
 }
 

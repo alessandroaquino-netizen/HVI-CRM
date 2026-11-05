@@ -88,3 +88,40 @@ export function mockNeca(leads) {
       suggested_lead_id: i % 17 === 1 ? leads[1]?.id : null, suggested_reason: 'Similar name to pipeline lead' };
   });
 }
+
+// ── Inventory and marketing drops (demo) ─────────────────────────────────
+export function mockInventory(products) {
+  const out = [];
+  const add = (p, label, o, a, r, rej, sell, shelf, res) => out.push({ id: uid('inv'), dtc_product_id: p.id, option_label: label, sku: `${p.name.slice(0, 3).toUpperCase()}-${label}`, qty_ordered: o, qty_shipped: a, qty_received: r, qty_rejected: rej, qty_sellable: sell, qty_shelved: shelf, qty_reserve: res, notes: '', updated_at: new Date().toISOString(), updated_by: 'demo' });
+  products.filter(p => ['warehouse', 'shipping'].includes(p.phase)).forEach((p, i) => {
+    ['S', 'M', 'L', 'XL'].forEach((sz, j) => {
+      if (p.phase === 'shipping') add(p, sz, 80 + j * 10, 80 + j * 10 - (j === 1 ? 4 : 0), null, null, null, null, null);
+      else if (i % 2 === 0) add(p, sz, 80 + j * 10, 80 + j * 10, 80 + j * 10 - (j === 2 ? 3 : 0), j === 1 ? 2 : 0, 80 + j * 10 - (j === 2 ? 3 : 0) - (j === 1 ? 2 : 0), 40, 40 + j * 10 - (j === 2 ? 3 : 0) - (j === 1 ? 2 : 0));
+      else add(p, sz, 80 + j * 10, null, 80 + j * 10, null, null, null, null);
+    });
+  });
+  return out;
+}
+
+export async function mockDropflow(products) {
+  const [{ parseTemplates }, E, sqlMod] = await Promise.all([import('../dropflow/seed.js'), import('../dropflow/engine.js'), import('../../migration_dropflow.sql?raw')]);
+  const templates = parseTemplates(sqlMod.default);
+  const roles = [['tony', 'Tony'], ['adriana', 'Adriana'], ['kuerstine', 'Kuerstine'], ['ryanne', 'Ryanne'], ['aira', 'Aira'], ['paul', 'Paul (photographer)'], ['warehouse', 'Warehouse']].map(([role, display_name], i) => ({ role, display_name, email: role === 'adriana' ? 'demo@highvoltageindustries.com' : null, is_external: role === 'paul', sort: i }));
+  const fridays = [E.nextFriday(day(0)), E.nextFriday(day(8)), E.nextFriday(day(15))];
+  const picks = products.filter(p => ['production', 'shipping', 'sampling'].includes(p.phase)).slice(0, 3);
+  const drops = []; const tasks = []; const events = [];
+  picks.forEach((p, i) => {
+    const d = { id: uid('drop'), dtc_product_id: p.id, drop_type: i === 2 ? 'restock' : 'new_product', launch_date: fridays[i], vault_date: E.addDays(fridays[i], -2), inventory_eta: null, stock_mode: i === 1 ? 'preorder' : 'in_stock', phase: ['assets', 'creative', 'brief'][i],
+      ai_photo_in_use: i === 1, link_product_info: i === 0 ? 'https://docs.google.com/spreadsheets' : null, link_walkthrough: i === 0 ? 'https://drive.google.com' : null, link_shot_list: null, link_photos: null, link_shopify_official: null, link_shopify_placeholder: null, link_sop: null, link_campaign: null, notes: null, created_at: new Date().toISOString() };
+    drops.push(d);
+    E.generateTasks(d, templates).forEach((t, k) => {
+      const early = ['walkthrough', 'walkthrough_link', 'tech_details', 'copy_core', 'pricing', 'info_sheet', 'sku_cost', 'shot_list'];
+      const done = i === 0 ? k < 14 : i === 1 ? k < 22 : k < 4;
+      tasks.push({ ...t, id: uid('task'), drop_id: d.id, status: t.status === 'na' ? 'na' : (done && early.concat(templates.slice(8, 30).map(x => x.key)).includes(t.template_key) ? 'complete' : (k % 11 === 0 ? 'in_progress' : 'not_started')),
+        workaround: i === 1 && t.template_key === 'photo_intake' ? 'Approved temporary AI photography' : null, prev_due_date: null, due_changed_at: null, due_locked: false, is_replacement: false, completed_at: null, completed_by: null, created_at: new Date().toISOString() });
+    });
+    events.push({ id: uid('ev'), drop_id: d.id, kind: 'created', message: `Drop created for ${p.name}: launch ${d.launch_date}.`, roles: [], created_by: 'demo@highvoltageindustries.com', created_at: new Date().toISOString() });
+  });
+  if (drops[1]) events.push({ id: uid('ev'), drop_id: drops[1].id, kind: 'preorder', message: `${picks[1].name}: converted to pre-order. Update Shopify, email, banners, social and paid messaging.`, roles: ['kuerstine', 'aira', 'ryanne'], created_by: 'demo@highvoltageindustries.com', created_at: new Date().toISOString() });
+  return { loaded: true, error: '', drops, tasks, templates, roles, events };
+}

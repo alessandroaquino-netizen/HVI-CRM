@@ -150,7 +150,7 @@ function wireTimelineDrag() {
   const start = tl.dataset.start; const total = parseInt(tl.dataset.total, 10);
   tl.querySelectorAll('[data-tl-drag]').forEach(h => {
     h.addEventListener('pointerdown', e => {
-      e.preventDefault(); h.setPointerCapture(e.pointerId);
+      e.preventDefault(); try { h.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
       const chart = h.parentElement; const width = chart.getBoundingClientRect().width; const x0 = e.clientX; const orig = h.dataset.date; const base = parseFloat(h.dataset.baseLeft);
       const row = h.closest('.tl-row'); let delta = 0; h.classList.add('dragging');
       const move = ev => {

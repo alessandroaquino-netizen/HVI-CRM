@@ -34,6 +34,11 @@ export async function saveDtcPhaseDates(productId, rows) {
   if (error) throw error;
 }
 
+export async function clearDtcPhaseDates(productId) {
+  const { error } = await supabase.from('dtc_phase_dates').delete().eq('dtc_product_id', productId);
+  if (error) throw error;
+}
+
 export function subscribeToDtcPhaseDates(onChange) {
   return supabase
     .channel('dtc-phase-dates-changes')
