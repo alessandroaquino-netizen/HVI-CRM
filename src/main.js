@@ -1,6 +1,6 @@
 import { supabase } from './supabase.js';
 import { signInWithGoogle, signOut, authorizeSignedInUser, onAuthChange } from './auth.js';
-import { setMyAccess, getMyAccess, isAdmin, canView, firstAllowedView } from './access.js';
+import { setMyAccess, setMyEmailAddr, getMyAccess, isAdmin, canView, firstAllowedView } from './access.js';
 import {
   fetchAppUsers, inviteUser, updateAppUser, setAppUserStatus, deleteAppUser,
   captureInviteTokenFromUrl, getPendingInviteToken,
@@ -733,6 +733,7 @@ function applyNavAccess() {
 function showApp(user, access) {
   setMyAccess(access);
   myEmail = (user.email || '').toLowerCase();
+  setMyEmailAddr(myEmail);
   document.getElementById('loginShell').classList.add('hidden');
   document.getElementById('appShell').classList.remove('hidden');
   document.getElementById('topUserEmail').textContent = user.email;
