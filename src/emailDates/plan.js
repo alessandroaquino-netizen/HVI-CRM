@@ -15,12 +15,20 @@ export function planChanges(product, existingPhaseDates, picked) {
       case 'delivery_eta':     fields.estimated_delivery_date = e.date; setPhase('shipping', 'planned_end', e.date); break;
     }
   }
+  const inventoryRows = [];
+  if (picked.quantities) {
+    const q = picked.quantities;
+    for (const r of q.sizes || []) inventoryRows.push({ option_label: r.size, qty_ordered: r.qty });
+    const total = q.total ?? (q.sizes?.length ? q.sizes.reduce((a, r) => a + r.qty, 0) : null);
+    if (total != null) { fields.units_ordered = total; }
+    if (q.ref && !product.order_ref) fields.order_ref = q.ref.replace(/\s+/g, ' ').trim();
+  }
   if (picked.tracking) { fields.tracking_number = picked.tracking.number; fields.carrier = picked.tracking.carrier; }
   if (picked.movePhase) phaseTo = picked.movePhase;
   const rows = Object.entries(phase).map(([phase_key, v]) => {
     const old = existingPhaseDates.find(d => d.phase_key === phase_key) || {};
     return { phase_key, planned_start: v.planned_start || old.planned_start || null, planned_end: v.planned_end || old.planned_end || null };
   });
-  return { fields, phaseRows: rows, phaseTo };
+  return { fields, phaseRows: rows, phaseTo, inventoryRows };
 }
 

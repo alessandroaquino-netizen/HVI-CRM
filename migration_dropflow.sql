@@ -29,7 +29,7 @@ ON CONFLICT (role) DO NOTHING;
 -- ─── 2. Task templates (editable in the app: owner, due-date offset, dependencies, N/A defaults) ───────────
 CREATE TABLE IF NOT EXISTS drop_task_templates (
   key            text primary key,
-  phase          text not null check (phase in ('brief','assets','listing','creative','vault','launch','post')),
+  phase          text not null check (phase in ('brief','assets','listing','creative','email','vault','launch','post')),
   title          text not null,
   description    text,
   owner_role     text not null references team_roles(role),
@@ -68,23 +68,23 @@ INSERT INTO drop_task_templates (key, phase, title, owner_role, offset_days, dep
  ('shopify_placeholder','listing', 'Create the zero-inventory placeholder listing (Notify Me signups only)',       'kuerstine', -8,  '{shopify_official}',              '{restock}',            NULL, 'listing',     220, 'Retired on Friday; Notify Me signups move to the official listing.'),
  ('shopify_content',   'listing',  'Add description, product information and photography to the official listing', 'kuerstine', -5, '{copy_core,photo_intake}',        '{}',                   NULL, 'listing',     230, 'If photography is late, use approved temporary AI photos and keep the replacement task open.'),
  ('links_recorded',    'listing',  'Record missing fields and link both listings in the database',                 'kuerstine', -5,  '{shopify_official}',              '{}',                   NULL, 'listing',     240, NULL),
- ('inventory_counts',  'listing',  'Final sellable counts entered in Inventory',                                   'warehouse', -3,  '{}',                              '{}',                   'instock', 'inventory', 250, 'Never split sellable inventory across duplicate listings.'),
+ ('inventory_counts',  'listing',  'Final sellable counts entered in Inventory',                                   'warehouse', -3,  '{}',                              '{dropship}',           'instock', 'inventory', 250, 'Never split sellable inventory across duplicate listings.'),
  ('preorder_setup',    'listing',  'Pre-order setup: update Shopify and the expected shipping timing',             'kuerstine', -2,  '{}',                              '{}',                   'preorder', 'listing', 260, NULL),
 
- ('email_plan',        'creative', 'Plan the email sequence and brief the designer',                               'aira',      -9,  '{copy_core}',                     '{}',                   NULL, 'creative',    300, NULL),
+ ('email_plan','email', 'Plan the email sequence and brief the designer',                               'aira',      -9,  '{copy_core}',                     '{}',                   NULL, 'creative',    300, NULL),
  ('size_graphics',     'creative', 'Size/fit graphics and PDP enhancements',                                       'ryanne',    -6,  '{photo_intake}',                  '{restock}',            NULL, 'creative',    310, NULL),
  ('social_plan',       'creative', 'Organic social plan (larger buildup for new products, lighter for colorways and restocks)', 'kuerstine', -8, '{copy_core}',         '{}',                   NULL, 'creative',    320, NULL),
  ('social_weekend',    'creative', 'Teaser post the weekend before the drop',                                       'kuerstine', -6,  '{social_plan}',                   '{}',                   NULL, 'creative',    330, NULL),
  ('banners',           'creative', 'Homepage and collection banners prepared and uploaded (linked to the placeholder listing)', 'ryanne', -4, '{shopify_placeholder}',     '{}',                   NULL, 'creative',    340, 'Monday. Uses approved AI photos if the real ones are not in yet.'),
- ('email_teaser',      'creative', 'Build and send the Monday teaser email',                                        'aira',      -4,  '{copy_core,shopify_placeholder}', '{}',                   NULL, 'creative',    350, 'Needs photos, description and the product link.'),
+ ('email_teaser','email', 'Build and send the Monday teaser email',                                        'aira',      -4,  '{copy_core,shopify_placeholder}', '{}',                   NULL, 'creative',    350, 'Needs photos, description and the product link.'),
  ('ads_creative',      'creative', 'Start the drop ad creative (with Socialite)',                                   'ryanne',    -4,  '{copy_core}',                     '{}',                   NULL, 'creative',    360, 'Most drops get ads; mark N/A when this one does not.'),
  ('pdp_assets',        'creative', 'Upload PDP graphics to the listing',                                            'ryanne',    -3,  '{size_graphics,shopify_official}','{restock}',            NULL, 'creative',    370, 'Owner to confirm: Ryanne or Kuerstine.'),
- ('founder_draft',     'creative', 'Write the optional From the Founder email copy',                                'adriana',   -5,  '{copy_core}',                     '{restock,colorway}',   NULL, 'copy',        380, NULL),
- ('founder_send',      'creative', 'Build and send the From the Founder email (Tuesday)',                           'aira',      -3,  '{founder_draft}',                 '{restock,colorway}',   NULL, 'creative',    390, NULL),
+ ('founder_draft','email', 'Write the optional From the Founder email copy',                                'adriana',   -5,  '{copy_core}',                     '{restock,colorway}',   NULL, 'copy',        380, NULL),
+ ('founder_send','email', 'Build and send the From the Founder email (Tuesday)',                           'aira',      -3,  '{founder_draft}',                 '{restock,colorway}',   NULL, 'creative',    390, NULL),
  ('ads_approval',      'creative', 'Approve new ad creative',                                                       'adriana',   -3,  '{ads_creative}',                  '{restock,colorway}',   NULL, 'creative',    400, 'Routine restock edits can skip approval.'),
  ('social_sneak',      'creative', 'Tuesday sneak peek or extra details post',                                      'kuerstine', -3,  '{social_plan}',                   '{restock}',            NULL, 'creative',    410, NULL),
  ('social_reveal',     'creative', 'Wednesday full reveal post (when appropriate)',                                 'kuerstine', -2,  '{social_plan}',                   '{restock}',            NULL, 'creative',    420, NULL),
- ('preorder_email',    'creative', 'Pre-order messaging in the remaining emails',                                   'aira',      -1,  '{}',                              '{}',                   'preorder', 'creative', 430, NULL),
+ ('preorder_email','email', 'Pre-order messaging in the remaining emails',                                   'aira',      -1,  '{}',                              '{}',                   'preorder', 'creative', 430, NULL),
  ('preorder_site',     'creative', 'Pre-order messaging on banners and paid ads',                                   'ryanne',    -1,  '{}',                              '{}',                   'preorder', 'creative', 440, NULL),
  ('preorder_social',   'creative', 'Pre-order messaging in organic social',                                         'kuerstine', -1,  '{}',                              '{}',                   'preorder', 'creative', 450, NULL),
 
@@ -94,7 +94,7 @@ INSERT INTO drop_task_templates (key, phase, title, owner_role, offset_days, dep
  ('v_access',          'vault',    'VIP access and purchase links tested',                                         'kuerstine', -2,  '{}',                              '{}',                   NULL, 'launch',      530, NULL),
  ('v_email',           'vault',    'Confirm the 5 PM PT Vault email is ready',                                     'aira',      -2,  '{email_teaser}',                  '{}',                   NULL, 'launch',      540, NULL),
  ('v_confirm',         'vault',    'VIP launch confirmed',                                                         'kuerstine', -2,  '{v_listing,v_pdp,v_price_inv,v_access,v_email}', '{}',        NULL, 'launch',      550, NULL),
- ('email_thursday',    'vault',    'Send the "dropping tomorrow" email',                                           'aira',      -1,  '{}',                              '{}',                   NULL, 'launch',      560, NULL),
+ ('email_thursday','email',    'Send the "dropping tomorrow" email',                                           'aira',      -1,  '{}',                              '{}',                   NULL, 'launch',      560, NULL),
 
  ('l_publish',         'launch',   'Publish the official listing for public purchase',                             'kuerstine', 0,   '{v_confirm}',                     '{}',                   NULL, 'launch',      600, NULL),
  ('l_notify',          'launch',   'Transfer Notify Me signups and trigger the notifications',                     'kuerstine', 0,   '{l_publish}',                     '{restock}',            NULL, 'launch',      610, NULL),
@@ -111,12 +111,12 @@ ON CONFLICT (key) DO NOTHING;
 CREATE TABLE IF NOT EXISTS drops (
   id                       uuid primary key default gen_random_uuid(),
   dtc_product_id           uuid not null unique references dtc_products(id) on delete cascade,
-  drop_type                text not null default 'new_product' check (drop_type in ('new_product','colorway','restock')),
+  drop_type                text not null default 'new_product' check (drop_type in ('new_product','colorway','restock','dropship')),
   launch_date              date not null,                         -- public launch (Friday)
   vault_date               date,                                  -- Wednesday Vault early access (defaults to launch - 2)
   inventory_eta            date,                                  -- when sellable stock is expected (pre-orders)
   stock_mode               text not null default 'in_stock' check (stock_mode in ('in_stock','preorder')),
-  phase                    text not null default 'brief' check (phase in ('brief','assets','listing','creative','vault','launch','post')),
+  phase                    text not null default 'brief' check (phase in ('brief','assets','listing','creative','email','vault','launch','post')),
   ai_photo_in_use          boolean not null default false,
   link_product_info        text,
   link_walkthrough         text,
@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS drop_tasks (
   id             uuid primary key default gen_random_uuid(),
   drop_id        uuid not null references drops(id) on delete cascade,
   template_key   text,
-  phase          text not null check (phase in ('brief','assets','listing','creative','vault','launch','post')),
+  phase          text not null check (phase in ('brief','assets','listing','creative','email','vault','launch','post')),
   title          text not null,
   owner_role     text not null references team_roles(role),
   due_date       date,

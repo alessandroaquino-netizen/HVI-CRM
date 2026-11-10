@@ -21,7 +21,7 @@ import {
 import {
   fetchDtcProducts, saveDtcProduct, saveDtcShipping, updateDtcPhase, deleteDtcProduct, startPremarketing,
   fetchDtcFinancials, saveDtcFinancial, deleteDtcFinancial,
-  fetchDtcMarketing, subscribeToDtc, updateDtcDropDate,
+  fetchDtcMarketing, subscribeToDtc, updateDtcDropDate, saveProductionTimes,
   fetchDtcVariants, saveDtcVariants, variantsForProduct, copyDtcVariants, upsertVariantsBySku,
 } from './controllers/dtc.js';
 import {
@@ -43,7 +43,8 @@ import { renderDtcDashboard } from './views/dtcDashboard.js';
 import { initDropflow, renderMarketingOps, dropForProduct, openDropModal, openCreateDropFor } from './views/dropflow.js';
 import { fetchDropflow, subscribeToDropflow, moveLaunchDate } from './controllers/dropflow.js';
 import { initInventory, renderDtcInventory } from './views/dtcInventory.js';
-import { fetchInventory } from './controllers/inventory.js';
+import { fetchInventory, upsertOrdered } from './controllers/inventory.js';
+import { fetchCalendarEvents, saveCalendarEvent, deleteCalendarEvent } from './controllers/calendarEvents.js';
 import { refreshTracking } from './controllers/tracking.js';
 import { needsRefresh } from './tracking/status.js';
 import { openEmailDatesModal } from './views/emailDates.js';
@@ -80,6 +81,7 @@ let necaLeads         = [];
 let dtcInvoices       = [];
 let dtcAliases        = [];
 let dtcInventory      = [];
+let calendarEvents    = [];
 let dropflow          = { loaded: false, error: '', drops: [], tasks: [], templates: [], roles: [], events: [] };
 let necaLoaded        = false;
 let myEmail           = '';
@@ -125,7 +127,7 @@ function render() {
   if (currentView === 'leadDashboard')     renderDashboard(leads, projects);
   if (currentView === 'projectsDashboard') renderProjectsDashboard(projects, projectActivity, projectStageDates);
   if (currentView === 'dtcProducts')       renderDtcProducts(dtcProducts, { onRefreshTracking: refreshAllTracking });
-  if (currentView === 'dtcCalendar')       renderDtcCalendar(dtcProducts, dtcPhaseDates, { onMoveDrop: handleMoveDrop, onPreview: previewDropMove });
+  if (currentView === 'dtcCalendar')       renderDtcCalendar(dtcProducts, dtcPhaseDates, { onMoveDrop: handleMoveDrop, onPreview: previewDropMove, events: calendarEvents, onSaveEvent: async (e, id) => { await saveCalendarEvent(e, id); await refresh(); }, onDeleteEvent: async id => { await deleteCalendarEvent(id); await refresh(); } });
   if (currentView === 'dtcFinancials')     renderDtcFinancials(dtcFinancials, dtcProducts, productCosts(dtcInvoices));
   if (currentView === 'dtcDashboard')      renderDtcDashboard(dtcProducts, dtcFinancials);
   if (currentView === 'dtcMarketing')      renderMarketingOps();
@@ -150,7 +152,7 @@ async function refresh() {
   if (MOCK) return applyMock();
   // Stage-tracking / DTC tables are newer, optional migrations — don't let a not-yet-migrated
   // Supabase project take down leads/projects loading if they're missing.
-  const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes, dtcProductsRes, dtcFinancialsRes, dtcMarketingRes, dtcVariantsRes, dtcPhaseDatesRes, appUsersRes, invoicesRes, aliasesRes, inventoryRes, dropflowRes] = await Promise.all([
+  const [leadsRes, projectsRes, stageDatesRes, activityRes, leadActivityRes, dtcProductsRes, dtcFinancialsRes, dtcMarketingRes, dtcVariantsRes, dtcPhaseDatesRes, appUsersRes, invoicesRes, aliasesRes, inventoryRes, eventsRes, dropflowRes] = await Promise.all([
     fetchLeads(), fetchProjects(),
     fetchStageDates().catch(() => []),
     fetchActivity().catch(() => []),
@@ -164,6 +166,7 @@ async function refresh() {
     fetchInvoices().catch(() => []),
     fetchAliases().catch(() => []),
     fetchInventory().catch(() => []),
+    fetchCalendarEvents().catch(() => []),
     fetchDropflow().then(d => ({ loaded: true, error: '', ...d })).catch(e => ({ loaded: false, error: e.message || String(e), drops: [], tasks: [], templates: [], roles: [], events: [] })),
   ]);
   leads = leadsRes; projects = projectsRes;
@@ -172,7 +175,7 @@ async function refresh() {
   dtcProducts = dtcProductsRes; dtcFinancials = dtcFinancialsRes; dtcMarketing = dtcMarketingRes;
   dtcVariants = dtcVariantsRes; dtcPhaseDates = dtcPhaseDatesRes;
   appUsers = appUsersRes;
-  dtcInvoices = invoicesRes; dtcAliases = aliasesRes; dtcInventory = inventoryRes; dropflow = dropflowRes;
+  dtcInvoices = invoicesRes; dtcAliases = aliasesRes; dtcInventory = inventoryRes; calendarEvents = eventsRes; dropflow = dropflowRes;
   render();
 }
 
@@ -380,6 +383,7 @@ function openDtcProductDetail(id) {
       onRefreshTracking:   handleRefreshTracking,
       onImportEmail:       handleImportEmail,
       onOpenMarketing:     handleOpenMarketing,
+      onSaveProduction:    async (id, f) => { try { await saveProductionTimes(id, f); await refresh(); openDtcProductDetail(id); } catch (e) { alert('Could not save: ' + e.message); } },
       drop:                dropForProduct(dropflow.drops, id),
       inventoryRows:       dtcInventory.filter(r => r.dtc_product_id === id),
     },
@@ -402,7 +406,7 @@ async function handleDtcProductSave(d) {
     // The form only holds some fields; merge with the stored product so edits do not blank the rest (shipping, pre-marketing start).
     const existing = editingDtcProductId ? dtcProducts.find(x => x.id === editingDtcProductId) : null;
     const id = await saveDtcProduct(existing ? { ...existing, ...d } : d, editingDtcProductId);
-    if (wasNew) {
+    if (wasNew && d.fulfillment !== 'dropship') {
       // Seed the financials tab automatically so it doesn't require a separate manual step.
       await saveDtcFinancial({ dtc_product_id: id, product_name: d.name, manufacturer: d.manufacturer }, null);
     }
@@ -473,6 +477,7 @@ function handleImportEmail(p) {
       const base = dtcProducts.find(x => x.id === p.id) || p;
       if (Object.keys(plan.fields).length || plan.phaseTo) await saveDtcProduct({ ...base, ...plan.fields, ...(plan.phaseTo ? { phase: plan.phaseTo, phase_changed_at: new Date().toISOString().slice(0, 10) } : {}) }, p.id);
       if (plan.phaseRows.length) await saveDtcPhaseDates(p.id, plan.phaseRows);
+      if (plan.inventoryRows?.length) await upsertOrdered(p.id, plan.inventoryRows);
       await refresh(); openDtcProductDetail(p.id);
     },
   });
@@ -884,7 +889,7 @@ function wireEvents() {
 async function bootstrap() {
   initTheme();
   initDropflow({
-    get: () => ({ ...dropflow, products: dtcProducts, inventory: dtcInventory }),
+    get: () => ({ ...dropflow, products: dtcProducts, inventory: dtcInventory, users: appUsers }),
     refresh, canEditSettings: () => isAdmin(), email: () => myEmail, syncProductDate: (productId, date) => updateDtcDropDate(productId, date), openProduct: id => { closeModal(); setView('dtcProducts'); openDtcProductDetail(id); },
   });
   initInventory({ get: () => ({ products: dtcProducts, inventory: dtcInventory, variants: dtcVariants, costs: productCosts(dtcInvoices) }), refresh });

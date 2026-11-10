@@ -5,7 +5,8 @@ export const DROP_PHASES = [
   { id: 'brief',    label: 'Brief & product info',        short: 'Brief',    color: '9B7FE8' },
   { id: 'assets',   label: 'Photography & assets',        short: 'Assets',   color: '5B9CF6' },
   { id: 'listing',  label: 'Shopify listing & inventory', short: 'Listing',  color: 'F0C040' },
-  { id: 'creative', label: 'Creative & campaigns',        short: 'Creative', color: 'E8874A' },
+  { id: 'creative', label: 'Creatives',                   short: 'Creative', color: 'E8874A' },
+  { id: 'email',    label: 'Email campaigns',             short: 'Email',    color: 'D6336C' },
   { id: 'vault',    label: 'Wednesday Vault',             short: 'Vault',    color: '2FA4B8' },
   { id: 'launch',   label: 'Friday launch',               short: 'Launch',   color: '4CAF7D' },
   { id: 'post',     label: 'Post-launch',                 short: 'Post',     color: '8A8F98' },
@@ -15,6 +16,7 @@ export const DROP_TYPES = [
   { id: 'new_product', label: 'New product' },
   { id: 'colorway',    label: 'New colorway' },
   { id: 'restock',     label: 'Restock' },
+  { id: 'dropship',    label: 'Drop-ship (no own inventory)' },
 ];
 
 export const TASK_STATUSES = [
@@ -33,6 +35,31 @@ export const BLOCKER_GROUPS = {
   creative:    'Creative and campaigns',
   launch:      'Launch readiness',
 };
+
+// Assets and information the team ticks off (no per-file links). `task` = the workflow task that a tick completes.
+// `link: true` items are campaign assets that live in their own folders: ticking one asks for its link.
+export const ASSET_CHECKS = [
+  { key: 'product_info',  label: 'Product information entered',            task: 'info_sheet' },
+  { key: 'walkthrough',   label: 'Tony walkthrough recorded',              task: 'walkthrough' },
+  { key: 'shot_list',     label: 'Shot list ready',                        task: 'shot_list' },
+  { key: 'flat_lays',     label: 'Manufacturer flat lays in the Drive folder', task: 'flat_lays' },
+  { key: 'photos',        label: 'Photography in the Drive folder',        task: 'photo_intake' },
+  { key: 'social_assets', label: 'Social media assets',                    task: 'social_assets', link: true },
+  { key: 'email_assets',  label: 'Email campaign assets',                  task: null,            link: true },
+  { key: 'ad_assets',     label: 'Paid ad creative',                       task: null,            link: true },
+  { key: 'banner_assets', label: 'Website banners and graphics',           task: null,            link: true },
+];
+
+// Checked campaign assets without a link yet.
+export function missingAssetLinks(checks = {}) {
+  return ASSET_CHECKS.filter(a => a.link && checks[a.key]?.done && !(checks[a.key]?.link || '').trim());
+}
+
+// The task a checklist item completes (or reopens) when it is ticked.
+export function taskForCheck(tasks, key) {
+  const tpl = ASSET_CHECKS.find(a => a.key === key)?.task;
+  return tpl ? tasks.find(t => t.template_key === tpl) || null : null;
+}
 
 export const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 

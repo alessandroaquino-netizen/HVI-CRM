@@ -32,6 +32,10 @@ export function rowToDtcProduct(r) {
     tracking_number:            r.tracking_number            || '',
     shipped_date:               r.shipped_date               || '',
     estimated_delivery_date:    r.estimated_delivery_date    || '',
+    fulfillment:                r.fulfillment                || 'own',
+    quoted_production_weeks:    r.quoted_production_weeks != null ? Number(r.quoted_production_weeks) : null,
+    production_started_on:      r.production_started_on      || '',
+    production_finished_on:     r.production_finished_on     || '',
     tracking_status:            r.tracking_status            || '',
     tracking_status_detail:     r.tracking_status_detail     || '',
     tracking_eta:               r.tracking_eta               || '',
@@ -68,6 +72,7 @@ function dtcProductToRow(p) {
     units_ordered:  p.units_ordered  != null && p.units_ordered  !== '' ? parseFloat(p.units_ordered)  : null,
     units_received: p.units_received != null && p.units_received !== '' ? parseFloat(p.units_received) : null,
     premarketing_started_at:    p.premarketing_started_at || null,
+    fulfillment:                p.fulfillment === 'dropship' ? 'dropship' : 'own',
     carrier:                    p.carrier          || null,
     tracking_number:            p.tracking_number  || null,
     shipped_date:               p.shipped_date     || null,
@@ -162,6 +167,19 @@ export async function saveDtcProduct(product, editingId = null) {
 export async function updateDtcPhase(id, phase) {
   const today = new Date().toISOString().slice(0, 10);
   const { error } = await supabase.from('dtc_products').update({ phase, phase_changed_at: today, last_activity: today }).eq('id', id);
+  if (error) throw error;
+  // Actual production time is recorded as the product moves: it enters production, then leaves it.
+  if (phase === 'production') await supabase.from('dtc_products').update({ production_started_on: today }).eq('id', id).is('production_started_on', null);
+  if (phase === 'shipping' || phase === 'warehouse') await supabase.from('dtc_products').update({ production_finished_on: today }).eq('id', id).is('production_finished_on', null).not('production_started_on', 'is', null);
+}
+
+// Manufacturer quote and the actual production dates, edited by hand when the phase moves did not capture them.
+export async function saveProductionTimes(id, { quoted_production_weeks, production_started_on, production_finished_on }) {
+  const row = {
+    quoted_production_weeks: quoted_production_weeks === '' || quoted_production_weeks == null ? null : Number(quoted_production_weeks),
+    production_started_on: production_started_on || null, production_finished_on: production_finished_on || null,
+  };
+  const { error } = await supabase.from('dtc_products').update(row).eq('id', id);
   if (error) throw error;
 }
 

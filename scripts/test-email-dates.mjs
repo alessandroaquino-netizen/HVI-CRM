@@ -40,3 +40,14 @@ const { planChanges } = await import('../src/emailDates/plan.js');
   assert.equal(plan.phaseRows.find(r => r.phase_key === 'shipping').planned_end, '2026-11-18');
   console.log('email dates: plan checks passed');
 }
+
+// Quantities
+const { findQuantities } = await import('../src/emailDates/parse.js');
+const q = findQuantities('Subject: HVI2621 Red Flannel order\nPlease confirm the breakdown for HVI2621:\nS: 20, M: 60, L: 90, XL: 70, 2XL: 40, 3XL: 20\nTotal 300 pcs.\nSize chart: M 38 in');
+assert.equal(q.total, 300); assert.equal(q.ref, 'HVI2621'); assert.equal(q.subject, 'HVI2621 Red Flannel order');
+assert.deepEqual(q.sizes.map(s => `${s.size}:${s.qty}`), ['S:20', 'M:60', 'L:90', 'XL:70', '2XL:40', '3XL:20']);
+assert.deepEqual(findQuantities('We need L and XL soon, 12 L 14 XL').sizes, [], 'two sizes in a line is not a breakdown');
+assert.equal(findQuantities('XXL 10 XL 20 L 30').sizes[0].size, '2XL');
+const plan2 = (await import('../src/emailDates/plan.js')).planChanges({ id: 'p' }, [], { events: [], quantities: { sizes: [{ size: 'S', qty: 20 }, { size: 'M', qty: 60 }], total: 80, ref: 'HVI2621' } });
+assert.deepEqual(plan2.inventoryRows, [{ option_label: 'S', qty_ordered: 20 }, { option_label: 'M', qty_ordered: 60 }]); assert.equal(plan2.fields.units_ordered, 80); assert.equal(plan2.fields.order_ref, 'HVI2621');
+console.log('email quantities: all checks passed');

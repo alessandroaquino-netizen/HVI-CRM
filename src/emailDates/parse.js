@@ -90,7 +90,27 @@ export function parseEmailText(text, { today = new Date().toISOString().slice(0,
     if (!found) scan(seg.text, seg.ctx, seg.text);
   }
   const tracking = findTracking(text);
-  return { events: events.sort((a, b) => a.date.localeCompare(b.date)), tracking, source: 'rules' };
+  return { events: events.sort((a, b) => a.date.localeCompare(b.date)), tracking, quantities: findQuantities(text), source: 'rules' };
+}
+
+// ─── Quantities: size breakdowns ("S 20, M 40, L 60"), a total ("300 pcs") and the order reference ───
+const SIZE_NORM = { xxs: 'XXS', xs: 'XS', s: 'S', m: 'M', l: 'L', xl: 'XL', xxl: '2XL', '2xl': '2XL', xxxl: '3XL', '3xl': '3XL', '4xl': '4XL', '5xl': '5XL' };
+const SIZE_RE = '(XXXL|XXL|XXS|XS|XL|S|M|L|[2-5]XL)';
+export function findQuantities(text) {
+  const sizes = []; const seen = new Set();
+  for (const line of text.split('\n')) {
+    const a = [...line.matchAll(new RegExp(`\\b${SIZE_RE}\\b\\s*[:=\\-–]?\\s*(\\d{1,4})\\b(?!\\s*(?:%|in\\b|cm\\b|inch))`, 'g'))];
+    const b = [...line.matchAll(new RegExp(`\\b(\\d{1,4})\\s*[x×]?\\s*${SIZE_RE}\\b`, 'g'))];
+    const hits = a.length >= b.length ? a.map(m => [m[1], +m[2]]) : b.map(m => [m[2], +m[1]]);
+    if (hits.length < 3) continue;                                  // a real breakdown lists several sizes on one line
+    for (const [sz, qty] of hits) { const k = SIZE_NORM[sz.toLowerCase()] || sz.toUpperCase(); if (!seen.has(k)) { seen.add(k); sizes.push({ size: k, qty, quote: line.trim().slice(0, 200) }); } }
+  }
+  const unit = '(?:pcs|pieces|units|garments|shirts|polos|hoodies|caps|hats)';
+  const tot = text.match(new RegExp(`total\\D{0,20}(\\d{2,5})\\s*${unit}?`, 'i')) || text.match(new RegExp(`(\\d{2,5})\\s*${unit}\\b`, 'i'));
+  const ref = text.match(/\bHVI\d{4}(?:[\s.\-]\d{2})*\b/)?.[0] || '';
+  const subject = text.match(/^subject:\s*(.+)$/im)?.[1]?.trim() || '';
+  const total = tot ? +tot[1] : (sizes.length ? sizes.reduce((a, x) => a + x.qty, 0) : null);
+  return { sizes, total, ref, subject };
 }
 
 export const phaseForKind = k => PHASE_OF_KIND[k] || null;

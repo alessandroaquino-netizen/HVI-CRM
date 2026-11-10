@@ -40,16 +40,26 @@ export function openEmailDatesModal(product, existingPhaseDates, { onApply }) {
         <div><div><b>${esc(KIND_LABELS[e.kind] || e.kind)}</b> · <input type="date" data-ev-date="${i}" value="${e.date}"> <span class="mo-meta">${esc(e.confidence || '')} confidence</span></div>
         <div class="mo-meta">“${esc(e.quote)}”${e.emailDate ? ` · email of ${formatDate(e.emailDate)}` : ''}</div></div></label>`).join('') || '<div class="mo-meta">No dated milestones were found in this text.</div>'}
       ${(r.tracking || []).map((t, i) => `<label class="ed-row"><input type="radio" name="edTrack" data-tr="${i}" ${i === 0 ? 'checked' : ''}><div><b>Tracking ${esc(t.number)}</b> <span class="mo-meta">${esc(t.carrier)}</span></div></label>`).join('')}
+      ${r.quantities?.sizes?.length || r.quantities?.total ? `<div class="section-divider" style="margin-top:14px">Quantities found</div>
+        <label class="ed-row"><input type="checkbox" id="edQty" checked><div><b>Set the ordered quantities</b>${r.quantities.total ? ` · total <input type="number" id="edQtyTotal" value="${r.quantities.total}" style="width:90px;min-height:30px;padding:2px 6px">` : ''}${r.quantities.ref ? ` · order ref <b>${esc(r.quantities.ref)}</b>` : ''}
+          <div class="ed-sizes">${(r.quantities.sizes || []).map((x, i) => `<span class="ed-size"><b>${esc(x.size)}</b> <input type="number" min="0" data-qty="${i}" value="${x.qty}"></span>`).join('')}</div>
+          <div class="mo-meta">Written to the product's ordered units and to the ordered column of Inventory, size by size. Check them against the email.</div></div></label>` : ''}
       ${phaseSuggest ? `<label class="ed-row"><input type="checkbox" id="edPhase"><div><b>Also move the product to “${esc(DTC_PHASES.find(p => p.id === phaseSuggest)?.label || phaseSuggest)}”</b><div class="mo-meta">The latest milestone found is in that phase. Left unticked by default.</div></div></label>` : ''}
       <div class="mo-meta" style="margin-top:8px">Dates found are written to the phase timeline, the shipping fields and the order date. Review each one against the quote.</div>
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button class="btn" id="edCancel">Cancel</button><button class="btn btn-accent" id="edApply" ${r.events.length || r.tracking?.length ? '' : 'disabled'}>Apply selected</button></div>`;
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button class="btn" id="edCancel">Cancel</button><button class="btn btn-accent" id="edApply" ${r.events.length || r.tracking?.length || r.quantities?.sizes?.length || r.quantities?.total ? '' : 'disabled'}>Apply selected</button></div>`;
     out.querySelector('#edCancel').addEventListener('click', close);
     out.querySelector('#edApply').addEventListener('click', async () => {
       const events = [...out.querySelectorAll('[data-ev]:checked')].map(c => ({ ...r.events[+c.dataset.ev], date: out.querySelector(`[data-ev-date="${c.dataset.ev}"]`).value })).filter(e => e.date);
       const tr = out.querySelector('[name="edTrack"]:checked'); const tracking = tr ? r.tracking[+tr.dataset.tr] : null;
       const movePhase = out.querySelector('#edPhase')?.checked ? phaseSuggest : null;
-      if (!events.length && !tracking && !movePhase) return;
-      try { await onApply(planChanges(product, existingPhaseDates, { events, tracking, movePhase })); close(); } catch (e) { alert('Could not apply: ' + (e.message || e)); }
+      let quantities = null;
+      if (out.querySelector('#edQty')?.checked) {
+        const sizes = (r.quantities.sizes || []).map((x, i) => ({ ...x, qty: parseInt(out.querySelector(`[data-qty="${i}"]`).value, 10) })).filter(x => Number.isFinite(x.qty));
+        const tv = parseInt(out.querySelector('#edQtyTotal')?.value, 10);
+        quantities = { sizes, total: Number.isFinite(tv) ? tv : null, ref: r.quantities.ref };
+      }
+      if (!events.length && !tracking && !movePhase && !quantities) return;
+      try { await onApply(planChanges(product, existingPhaseDates, { events, tracking, movePhase, quantities })); close(); } catch (e) { alert('Could not apply: ' + (e.message || e)); }
     });
   }
 }

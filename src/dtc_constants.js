@@ -273,3 +273,48 @@ export function daysToDelivery(product, today = new Date().toISOString().slice(0
   if (!eta) return null;
   return Math.round((new Date(eta) - new Date(today)) / 86400000);
 }
+
+// ─── T-minus planning: from a target drop date back to when each stage must start ───────────────────────
+// Uses the lead-time table (total weeks per category) and the stage weights of the product type. A restock skips design and
+// sampling, a new design in an existing line skips design; the total always matches the table.
+const STAGES_BY_CATEGORY = { restock: ['production', 'shipping'], 'new-design': ['sampling', 'production', 'shipping'], 'new-line': ['design_first', 'design_final', 'sampling', 'production', 'shipping'] };
+const STAGE_LABEL = { design_first: 'Ideation', design_final: 'Design', sampling: 'Sampling', production: 'Production', shipping: 'Shipping' };
+export function planBackward({ product_type, category = 'new-line', drop_date }) {
+  const type = PRODUCT_TYPES.find(t => t.id === product_type);
+  if (!type || !drop_date) return null;
+  const totalWeeks = type.totalWeeks[category] ?? null;
+  if (!totalWeeks) return null;
+  const addDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const stages = (STAGES_BY_CATEGORY[category] || STAGES_BY_CATEGORY['new-line']).filter(s => type.phases);
+  let phases = null;
+  if (type.phases && stages.length) {
+    const sum = stages.reduce((a, s) => a + type.phases[s], 0); const scale = totalWeeks / sum;
+    let end = drop_date; const out = [];
+    for (const s of [...stages].reverse()) { const days = Math.max(1, Math.round(type.phases[s] * scale * 7)); out.unshift({ id: s, label: STAGE_LABEL[s], start: addDays(end, -days), end, weeks: Math.round((days / 7) * 10) / 10 }); end = addDays(end, -days); }
+    phases = out;
+  }
+  const startBy = phases ? phases[0].start : addDays(drop_date, -totalWeeks * 7);
+  return { totalWeeks, startBy, firstStage: phases ? phases[0].label : 'Start', phases };
+}
+
+// Quoted vs actual production time (weeks). `actual` is null until production has both a start and an end (or is still running: `running`).
+export function productionTime(product, today = new Date().toISOString().slice(0, 10)) {
+  const quoted = product.quoted_production_weeks != null && product.quoted_production_weeks !== '' ? Number(product.quoted_production_weeks) : null;
+  const start = product.production_started_on || null; const end = product.production_finished_on || null;
+  if (!start) return { quoted, actual: null, running: false, variance: null };
+  const days = Math.max(0, Math.round((new Date((end || today) + 'T00:00:00Z') - new Date(start + 'T00:00:00Z')) / 86400000));
+  const actual = Math.round((days / 7) * 10) / 10;
+  return { quoted, actual, running: !end, variance: quoted != null ? Math.round((actual - quoted) * 10) / 10 : null };
+}
+
+// ─── Standard size runs per product type (pre-loaded in Inventory and in Sizes & SKUs; anything can be added or removed) ───
+const S_3XL = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
+const S_4XL = [...S_3XL, '4XL'];
+export const SIZE_TEMPLATES = {
+  'tee': S_3XL, 'hoodie': S_3XL, 'board-short': S_3XL,
+  'button-up': S_4XL, 'polo': S_4XL, 'flannel': S_4XL, 'jersey': S_4XL, 'long-sleeve-button-up': S_4XL,
+  'hat-embroidered': ['One size'], 'hat-stormcode': ['One size'], 'hat-other': ['One size'],
+};
+export const sizesFor = productType => SIZE_TEMPLATES[productType] || [];
+// Splits "4XL, 5XL" or "Black / Red" lists typed by hand into clean, de-duplicated labels.
+export function parseLabels(text) { return [...new Set(String(text || '').split(/[,;\n]/).map(x => x.trim()).filter(Boolean))]; }

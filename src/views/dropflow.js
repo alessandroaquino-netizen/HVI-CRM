@@ -2,10 +2,10 @@
 // The view talks to the controller directly and asks main.js to reload through ctx.refresh().
 import {
   createDrop, updateDrop, deleteDrop, moveLaunchDate, convertToPreorder, setTaskStatus, updateTask, addCustomTask, deleteTask,
-  useWorkaround, clearWorkaround, saveTemplate, saveRole, applyTemplateToOpenTasks,
+  useWorkaround, clearWorkaround, saveTemplate, saveRole, applyTemplateToOpenTasks, setAssetCheck,
 } from '../controllers/dropflow.js';
 import {
-  DROP_PHASES, DROP_TYPES, TASK_STATUSES, BLOCKER_GROUPS, isDone, isFriday, todayStr, addDays, diffDays, defaultVaultDate,
+  DROP_PHASES, DROP_TYPES, TASK_STATUSES, BLOCKER_GROUPS, ASSET_CHECKS, missingAssetLinks, isDone, isFriday, todayStr, addDays, diffDays, defaultVaultDate,
   taskInfo, tasksByKey, dropProgress, phaseProgress, blockersByGroup, blockerText, weekPlan, recalcDueDates,
 } from '../dropflow/engine.js';
 import { formatDate } from '../utils.js';
@@ -44,7 +44,7 @@ export function renderMarketingOps() {
     return;
   }
   if (!viewAs) viewAs = defaultViewAs(st);
-  const tabs = [['board', 'Board'], ['tasks', 'My tasks'], ['blockers', 'Blockers'], ['week', 'Launch week']];
+  const tabs = [['board', 'Board'], ['tracks', 'Tracks'], ['tasks', 'My tasks'], ['blockers', 'Blockers'], ['week', 'Launch week']];
   if (ctx.canEditSettings()) tabs.push(['settings', 'Workflow settings']);
   const late = st.tasks.filter(t => !isDone(t) && t.due_date && t.due_date < todayStr() && st.drops.some(d => d.id === t.drop_id && d.launch_date >= todayStr())).length;
   el.innerHTML = `
@@ -52,7 +52,7 @@ export function renderMarketingOps() {
       <div class="mo-tabs" role="tablist">${tabs.map(([id, label]) => `<button class="mo-tab${tab === id ? ' active' : ''}" data-mo-tab="${id}" role="tab">${label}${id === 'tasks' && late ? ` <span class="mo-count">${late}</span>` : ''}</button>`).join('')}</div>
       <button class="btn btn-accent btn-sm" id="moNewDrop">＋ New drop</button>
     </div>
-    <div id="moBody">${tab === 'board' ? boardHtml(st) : tab === 'tasks' ? tasksHtml(st) : tab === 'blockers' ? blockersHtml(st) : tab === 'week' ? weekHtml(st) : settingsHtml(st)}</div>`;
+    <div id="moBody">${tab === 'board' ? boardHtml(st) : tab === 'tracks' ? tracksHtml(st) : tab === 'tasks' ? tasksHtml(st) : tab === 'blockers' ? blockersHtml(st) : tab === 'week' ? weekHtml(st) : settingsHtml(st)}</div>`;
   el.querySelectorAll('[data-mo-tab]').forEach(b => b.addEventListener('click', () => { tab = b.dataset.moTab; renderMarketingOps(); }));
   el.querySelector('#moNewDrop').addEventListener('click', () => openCreateDrop());
   wireBody(el, st);
@@ -63,6 +63,12 @@ function defaultViewAs(st) {
   const mine = st.roles.filter(r => r.email && r.email.toLowerCase() === ctx.email()).map(r => r.role);
   return mine.length ? mine[0] : 'all';
 }
+
+// Filter by person: every tab can be narrowed to one team member's work.
+function personFilter(st, extra = '') {
+  return `<div class="mo-filter"><label>Person <select id="moViewAs"><option value="all"${viewAs === 'all' ? ' selected' : ''}>Everyone</option>${st.roles.map(r => `<option value="${r.role}"${viewAs === r.role ? ' selected' : ''}>${esc(r.display_name)}${r.email || r.is_external ? '' : ' (no login linked)'}</option>`).join('')}</select></label>${extra}</div>`;
+}
+const mineOnly = (st, dropId) => viewAs === 'all' || tasksOf(st, dropId).some(t => t.owner_role === viewAs && !isDone(t));
 
 // ─── Board ────────────────────────────────────────────────────────────────
 function inventoryLine(st, d) {
@@ -97,11 +103,12 @@ function dropCard(st, d) {
 
 function boardHtml(st) {
   const today = todayStr();
-  const active = st.drops.filter(d => d.launch_date >= addDays(today, -14));
+  const active = st.drops.filter(d => d.launch_date >= addDays(today, -14) && mineOnly(st, d.id));
   const withDrop = new Set(st.drops.map(d => d.dtc_product_id));
   const candidates = st.products.filter(p => p.drop_date && p.drop_date >= today && !withDrop.has(p.id)).sort((a, b) => a.drop_date.localeCompare(b.drop_date));
   const feed = recentEvents(st, null);
   return `
+    ${personFilter(st, `<span class="mo-meta">${active.length} drop${active.length === 1 ? '' : 's'}${viewAs === 'all' ? '' : ' with open tasks for this person'}</span>`)}
     ${candidates.length ? `<div class="panel mo-candidates"><div class="panel-title">Products with a drop date but no drop plan<small>${candidates.length}</small></div>
       <div class="mo-chips">${candidates.map(p => `<button class="btn btn-sm" data-create-drop="${p.id}">＋ ${esc(p.name)} · ${formatDate(p.drop_date)}</button>`).join('')}</div></div>` : ''}
     ${feed.length ? `<div class="panel mo-feed"><div class="panel-title">Recent changes<small>${feed.length}</small></div>${feed.slice(0, 4).map(eventRow).join('')}</div>` : ''}
@@ -156,19 +163,31 @@ function tasksHtml(st) {
   const feed = recentEvents(st, null);
   const sec = (title, list, color) => list.length ? `<div class="panel"><div class="panel-title" ${color ? `style="color:${color}"` : ''}>${title}<small>${list.length}</small></div>${list.map(t => taskRow(st, t)).join('')}</div>` : '';
   return `
-    <div class="mo-filter"><label>Show tasks for
-      <select id="moViewAs"><option value="all"${viewAs === 'all' ? ' selected' : ''}>Everyone</option>${st.roles.map(r => `<option value="${r.role}"${viewAs === r.role ? ' selected' : ''}>${esc(r.display_name)}${r.email ? '' : ' (no login linked)'}</option>`).join('')}</select></label>
-      <span class="mo-meta">${open.length} open · ${ready} ready to start now</span></div>
+    ${personFilter(st, `<span class="mo-meta">${open.length} open · ${ready} ready to start now</span>`)}
     ${feed.length ? `<div class="panel mo-feed"><div class="panel-title">Changes since you last looked<small>${feed.length}</small><button class="btn btn-sm btn-ghost" id="moSeen" style="margin-left:auto">Mark as seen</button></div>${feed.slice(0, 6).map(eventRow).join('')}</div>` : ''}
     ${sec('Overdue', overdue, 'var(--red)')}${sec('Due in the next 7 days', week)}${sec('Later', later)}
     ${open.length ? '' : '<div style="color:var(--text3)">Nothing open for this person. 🎉</div>'}`;
 }
 
+// ─── Tracks: every phase side by side, so concurrent work (creatives, emails, listing) is visible at a glance ───
+function tracksHtml(st) {
+  const today = todayStr();
+  const drops = st.drops.filter(d => d.launch_date >= addDays(today, -14) && mineOnly(st, d.id));
+  if (!drops.length) return personFilter(st) + '<div style="color:var(--text3)">No drops to show.</div>';
+  return `${personFilter(st, '<span class="mo-meta">Each box is one phase: tasks done / total. Phases run in parallel; the highlighted one is where the drop sits on the board.</span>')}
+    <div class="table-scroll"><table class="list-table mo-tracks"><thead><tr><th>Drop</th>${DROP_PHASES.map(p => `<th style="color:${ink(p.color)}">${p.short}</th>`).join('')}</tr></thead><tbody>
+    ${drops.map(d => { const ts = tasksOf(st, d.id).filter(t => viewAs === 'all' || t.owner_role === viewAs); const pp = phaseProgress(ts);
+      return `<tr data-open-drop="${d.id}"><td data-label="Drop"><b>${esc(dropName(st, d))}</b><div class="mo-meta">${esc(typeLabel(d.drop_type))} · launch ${formatDate(d.launch_date)}</div></td>
+        ${pp.map(x => { const pct = x.total ? Math.round(100 * x.done / x.total) : 0; const late = x.pending.filter(t => t.due_date && t.due_date < today).length;
+          return `<td data-label="${x.short}" class="mo-track${x.id === d.phase ? ' here' : ''}">${x.total ? `<div class="mo-progress"><i style="width:${pct}%;background:${x.done === x.total ? 'var(--green)' : late ? 'var(--red)' : fill(x.color)}"></i></div><div class="mo-meta"><b>${x.done}/${x.total}</b>${late ? ` · <span style="color:var(--red)">${late} late</span>` : ''}</div>` : '<span class="mo-meta">—</span>'}</td>`; }).join('')}</tr>`; }).join('')}
+    </tbody></table></div>`;
+}
+
 // ─── Blockers ─────────────────────────────────────────────────────────────
 function blockersHtml(st) {
-  const groups = blockersByGroup(st.drops, st.tasks, d => dropName(st, d));
-  if (!groups.length) return '<div style="color:var(--text3)">No open blockers across upcoming drops.</div>';
-  return `<div class="mo-note">Open items grouped by what they are waiting for, so one message can chase everything (for example every product still waiting for photos).</div>
+  const groups = blockersByGroup(st.drops, st.tasks.filter(t => viewAs === 'all' || t.owner_role === viewAs), d => dropName(st, d));
+  if (!groups.length) return personFilter(st) + '<div style="color:var(--text3)">No open blockers for this selection.</div>';
+  return `${personFilter(st)}<div class="mo-note">Open items grouped by what they are waiting for, so one message can chase everything (for example every product still waiting for photos).</div>
     <div class="mo-groups">${groups.map(g => `<div class="panel"><div class="panel-title">${esc(g.label)}<small>${g.items.length} open${g.late ? `, ${g.late} late` : ''}</small>
       <button class="btn btn-sm btn-ghost" data-copy-group="${g.id}" style="margin-left:auto">Copy list</button></div>
       ${g.items.map(i => `<div class="mo-task"><div class="mo-task-main" data-open-drop="${i.drop.id}" data-focus-task="${i.task.id}"><div class="mo-task-title">${esc(i.product)}</div>
@@ -197,11 +216,17 @@ function weekHtml(st) {
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────
+function userOptions(st, current) {
+  const users = (st.users || []).filter(u => u.status !== 'disabled');
+  const list = users.some(u => u.email === (current || '').toLowerCase()) || !current ? users : [...users, { email: current, full_name: current }];
+  return list.map(u => `<option value="${esc(u.email)}"${u.email === (current || '').toLowerCase() ? ' selected' : ''}>${esc(u.full_name || u.email)} (${esc(u.email)})</option>`).join('');
+}
+
 function settingsHtml(st) {
   const phaseGroups = DROP_PHASES.map(ph => ({ ph, ts: st.templates.filter(t => t.phase === ph.id) })).filter(g => g.ts.length);
   return `<div class="mo-note"><b>Default timing.</b> Due dates are days from the public launch (Friday = 0, Wednesday Vault = −2, Monday = −4). Change a number, owner or the active switch and save: new drops use it from now on. Tick “apply to open tasks” to also update unfinished tasks of drops that have not launched.</div>
     <div class="panel"><div class="panel-title">Team<small>link each person to their login so “My tasks” opens on their own work</small></div>
-      <div class="mo-roles">${st.roles.map(r => `<div class="mo-role"><b>${esc(r.display_name)}</b><input type="email" data-role-email="${r.role}" value="${esc(r.email || '')}" placeholder="${r.is_external ? 'External, no login needed' : 'name@highvoltageindustries.com'}"><button class="btn btn-sm" data-save-role="${r.role}">Save</button></div>`).join('')}</div></div>
+      <div class="mo-roles">${st.roles.map(r => `<div class="mo-role"><b>${esc(r.display_name)}</b><select data-role-email="${r.role}"><option value="">${r.is_external ? 'External, no login needed' : '— Not linked —'}</option>${userOptions(st, r.email)}</select><button class="btn btn-sm" data-save-role="${r.role}">Save</button></div>`).join('')}</div></div>
     ${phaseGroups.map(({ ph, ts }) => `<div class="panel"><div class="panel-title" style="color:${ink(ph.color)}">${ph.label}<small>${ts.length} templates</small></div>
       <div class="mo-tpl-head"><span>Task</span><span>Owner</span><span>Days from launch</span><span>Active</span><span></span></div>
       ${ts.map(t => `<div class="mo-tpl" data-tpl="${t.key}"><span class="mo-tpl-title" title="${esc(t.description || '')}">${esc(t.title)}${t.na_for.length ? `<small> · starts N/A for ${t.na_for.map(typeLabel).join(', ').toLowerCase()}</small>` : ''}${t.only_if ? `<small> · ${t.only_if === 'preorder' ? 'pre-order only' : 'in-stock only'}</small>` : ''}</span>
@@ -226,7 +251,7 @@ function wireBody(el, st) {
   el.querySelector('#moWeek')?.addEventListener('change', e => { weekSel = e.target.value; renderMarketingOps(); });
   el.querySelector('#moSeen')?.addEventListener('click', () => { try { localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString()); } catch {} renderMarketingOps(); });
   el.querySelectorAll('[data-copy-group]').forEach(b => b.addEventListener('click', () => {
-    const g = blockersByGroup(st.drops, st.tasks, d => dropName(st, d)).find(x => x.id === b.dataset.copyGroup);
+    const g = blockersByGroup(st.drops, st.tasks.filter(t => viewAs === 'all' || t.owner_role === viewAs), d => dropName(st, d)).find(x => x.id === b.dataset.copyGroup);
     navigator.clipboard?.writeText(blockerText(g)).then(() => { b.textContent = 'Copied ✓'; setTimeout(() => { b.textContent = 'Copy list'; }, 1500); });
   }));
   el.querySelectorAll('[data-save-role]').forEach(b => b.addEventListener('click', () => {
@@ -254,7 +279,7 @@ function openCreateDrop(productId = null) {
     <div class="modal-body">
       ${options.length ? `<div class="form-row"><label>Product</label><select id="cdProduct">${options.map(p => `<option value="${p.id}" ${p.id === p0?.id ? 'selected' : ''}>${esc(p.name)}${p.drop_date ? ' · ' + formatDate(p.drop_date) : ' · no drop date'}</option>`).join('')}</select></div>
       <div class="form-grid">
-        <div class="form-row"><label>Drop type</label><select id="cdType">${DROP_TYPES.map(t => `<option value="${t.id}" ${(p0?.category === 'restock' ? 'restock' : p0?.category === 'new-line' ? 'new_product' : 'colorway') === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}</select></div>
+        <div class="form-row"><label>Drop type</label><select id="cdType">${DROP_TYPES.map(t => `<option value="${t.id}" ${(p0?.fulfillment === 'dropship' ? 'dropship' : p0?.category === 'restock' ? 'restock' : p0?.category === 'new-line' ? 'new_product' : 'colorway') === t.id ? 'selected' : ''}>${t.label}</option>`).join('')}</select></div>
         <div class="form-row"><label>Inventory</label><select id="cdStock"><option value="in_stock">In stock at launch</option><option value="preorder">Pre-order</option></select></div>
         <div class="form-row"><label>Public launch date (Friday)</label><input type="date" id="cdLaunch" value="${p0?.drop_date || ''}"></div>
         <div class="form-row"><label>Vault early access</label><input type="date" id="cdVault" value="${p0?.drop_date ? defaultVaultDate(p0.drop_date) : ''}" disabled></div>
@@ -281,16 +306,14 @@ function openCreateDrop(productId = null) {
 }
 
 // ─── Drop detail ──────────────────────────────────────────────────────────
-const LINKS = [['link_product_info', 'Product information'], ['link_walkthrough', 'Tony walkthrough'], ['link_shot_list', 'Shot list'], ['link_photos', 'Photos (Drive folder)'],
-  ['link_shopify_official', 'Shopify official listing'], ['link_shopify_placeholder', 'Shopify placeholder'], ['link_sop', 'Shopify SOP (Notion)'], ['link_campaign', 'Campaign assets']];
-
 export function renderDropModal(dropId, focusTaskId = null) {
   const st = S(); const d = st.drops.find(x => x.id === dropId); const overlay = document.getElementById('modalOverlay'); const box = document.getElementById('modalBox');
   if (!d) { overlay.classList.add('hidden'); return; }
   const name = dropName(st, d); const ts = tasksOf(st, d.id); const byKey = tasksByKey(ts); const pr = dropProgress(ts);
   const phases = phaseProgress(ts); const cur = DROP_PHASES.findIndex(p => p.id === d.phase);
   const prod = st.products.find(p => p.id === d.dtc_product_id);
-  const missingLinks = LINKS.filter(([k]) => !d[k]);
+  const checks = d.asset_checks || {};
+  const needLinks = missingAssetLinks(checks);
   const taskLine = t => {
     const info = taskInfo(t, byKey);
     return `<div class="mo-trow${isDone(t) ? ' done' : ''}${focusTaskId === t.id ? ' focus' : ''}" data-task="${t.id}">
@@ -299,13 +322,12 @@ export function renderDropModal(dropId, focusTaskId = null) {
         ${info.late ? `<span class="tag-overdue">${info.late}d late</span>` : ''}</div>
       <div class="mo-trow-ctl">
         <select data-owner>${st.roles.map(r => `<option value="${r.role}"${r.role === t.owner_role ? ' selected' : ''}>${esc(r.display_name)}</option>`).join('')}</select>
-        <input type="date" data-due value="${t.due_date || ''}" title="${t.due_locked ? 'Set by hand: stays when the launch moves' : 'Follows the launch date'}">
         <select data-status>${TASK_STATUSES.map(s => `<option value="${s.id}"${s.id === t.status ? ' selected' : ''}>${s.label}</option>`).join('')}</select>
         ${!isDone(t) && !t.workaround ? '<button class="btn btn-sm btn-ghost" data-workaround title="Keep going with a fallback, e.g. temporary AI photography">Use workaround</button>' : ''}
         ${t.workaround ? '<button class="btn btn-sm btn-ghost" data-clear-workaround>Real asset arrived</button>' : ''}
         ${t.template_key && !t.template_key.endsWith('_replace') ? '' : '<button class="btn btn-sm btn-ghost" data-del title="Delete task">✕</button>'}
       </div>
-      <div class="mo-meta">${info.waiting.length ? `<span class="mo-wait">waiting on ${esc(info.waiting.map(w => w.title.split(/[:(,]/)[0]).slice(0, 2).join(', '))}</span> · ` : ''}${t.workaround ? `<span class="mo-badge">workaround: ${esc(t.workaround)}</span> · ` : ''}${t.prev_due_date && t.due_changed_at ? `date moved from ${formatDate(t.prev_due_date)} · ` : ''}${esc(t.note || '')}</div>
+      <div class="mo-meta">${t.due_date ? `due ${formatDate(t.due_date)} · ` : ''}${info.waiting.length ? `<span class="mo-wait">waiting on ${esc(info.waiting.map(w => w.title.split(/[:(,]/)[0]).slice(0, 2).join(', '))}</span> · ` : ''}${t.workaround ? `<span class="mo-badge">workaround: ${esc(t.workaround)}</span> · ` : ''}${t.prev_due_date && t.due_changed_at ? `date moved from ${formatDate(t.prev_due_date)} · ` : ''}${esc(t.note || '')}</div>
     </div>`;
   };
   box.dataset.dropModal = '1';
@@ -320,14 +342,18 @@ export function renderDropModal(dropId, focusTaskId = null) {
       <div class="section-divider">Phase</div>
       <div class="mo-phases">${DROP_PHASES.map((p, i) => { const pp = phases[i]; return `<button class="stage-pill${p.id === d.phase ? ' active' : ''}" data-phase="${p.id}" title="${pp.done}/${pp.total} done">${p.short} <small>${pp.done}/${pp.total}</small></button>`; }).join('')}</div>
       <div class="mo-note">Moving ahead is never blocked. If tasks of earlier phases are still open you will see them listed before confirming, and they stay on the board.</div>
-      <div class="section-divider">Details and links</div>
-      <div class="form-grid">
+      <div class="section-divider">Drive folder and assets</div>
+      <div class="form-row"><label>Product folder (Google Drive)</label><div class="mo-link"><input type="url" id="dFolder" value="${esc(d.drive_folder || '')}" placeholder="https://drive.google.com/drive/folders/…">${d.drive_folder ? `<a class="btn btn-sm" href="${esc(d.drive_folder)}" target="_blank" rel="noopener">Open</a>` : ''}</div></div>
+      <div class="mo-meta" style="margin-bottom:6px">Tick what is done. Campaign assets live in their own folders, so a tick asks for the link.</div>
+      <div class="mo-checks">${ASSET_CHECKS.map(a => { const c = checks[a.key] || {}; return `<div class="mo-checkrow${a.link && c.done && !(c.link || '').trim() ? ' need' : ''}" data-check="${a.key}">
+        <label class="mo-check-line" style="margin:0"><input type="checkbox" data-check-box ${c.done ? 'checked' : ''}> ${esc(a.label)}</label>
+        ${a.link && c.done ? `<div class="mo-link"><input type="url" data-check-link value="${esc(c.link || '')}" placeholder="Link to the ${esc(a.label.toLowerCase())} (required)">${c.link ? `<a class="btn btn-sm" href="${esc(c.link)}" target="_blank" rel="noopener">Open</a>` : ''}<button class="btn btn-sm" data-check-save>Save link</button></div>` : ''}</div>`; }).join('')}</div>
+      ${needLinks.length ? `<div class="mo-meta" style="color:var(--accent)">Link needed for: ${needLinks.map(a => a.label).join(', ')}.</div>` : ''}
+      <div class="form-grid" style="margin-top:10px">
         <div class="form-row"><label>Drop type</label><select id="dType">${DROP_TYPES.map(t => `<option value="${t.id}"${t.id === d.drop_type ? ' selected' : ''}>${t.label}</option>`).join('')}</select></div>
         <div class="form-row"><label>Inventory ETA</label><input type="date" id="dEta" value="${d.inventory_eta || ''}"></div>
-        ${LINKS.map(([k, label]) => `<div class="form-row"><label>${label}</label><div class="mo-link"><input type="url" data-link="${k}" value="${esc(d[k] || '')}" placeholder="https://…">${d[k] ? `<a class="btn btn-sm" href="${esc(d[k])}" target="_blank" rel="noopener">Open</a>` : ''}</div></div>`).join('')}
         <div class="form-row" style="grid-column:1/-1"><label>Notes</label><textarea id="dNotes" rows="2">${esc(d.notes || '')}</textarea></div>
       </div>
-      ${missingLinks.length ? `<div class="mo-meta">Missing links: ${missingLinks.map(([, l]) => l).join(', ')}.</div>` : ''}
       <div style="display:flex;justify-content:flex-end;margin:8px 0 14px"><button class="btn btn-sm btn-accent" id="dSave">Save details</button></div>
       ${prod ? `<div class="mo-meta" style="margin-bottom:10px">Product: <a href="#" id="dOpenProduct">${esc(prod.name)}</a>${prod.drop_date && prod.drop_date !== d.launch_date ? ` · the product's drop date is ${formatDate(prod.drop_date)}` : ''}</div>` : ''}
       ${DROP_PHASES.map((p, i) => { const list = ts.filter(t => t.phase === p.id); if (!list.length) return ''; const pp = phases[i];
@@ -354,9 +380,13 @@ export function renderDropModal(dropId, focusTaskId = null) {
     run(async () => { await updateDrop(d.id, { phase: target }); });
   }));
   q('#dSave').addEventListener('click', () => {
-    const fields = { drop_type: q('#dType').value, inventory_eta: q('#dEta').value || null, notes: q('#dNotes').value.trim() || null };
-    box.querySelectorAll('[data-link]').forEach(i => { fields[i.dataset.link] = i.value.trim() || null; });
+    const fields = { drop_type: q('#dType').value, inventory_eta: q('#dEta').value || null, notes: q('#dNotes').value.trim() || null, drive_folder: q('#dFolder').value.trim() || null };
     run(() => updateDrop(d.id, fields));
+  });
+  box.querySelectorAll('[data-check]').forEach(row => {
+    const key = row.dataset.check; const meta = ASSET_CHECKS.find(a => a.key === key);
+    row.querySelector('[data-check-box]').addEventListener('change', e => run(() => setAssetCheck(d, ts, key, e.target.checked, meta.link ? (checks[key]?.link || '') : '')));
+    row.querySelector('[data-check-save]')?.addEventListener('click', () => { const link = row.querySelector('[data-check-link]').value.trim(); if (!link) return toast('Add the link for ' + meta.label.toLowerCase() + '.'); run(() => setAssetCheck(d, ts, key, true, link)); });
   });
   q('#dDelete').addEventListener('click', () => { if (confirm('Delete this drop plan and all of its tasks? The product is not affected.')) run(async () => { await deleteDrop(d.id); overlay.classList.add('hidden'); openDropId = null; box.removeAttribute('data-drop-modal'); }); });
   q('#nAdd').addEventListener('click', () => { const title = q('#nTitle').value.trim(); if (!title) return; run(() => addCustomTask(d.id, { title, phase: q('#nPhase').value, owner_role: q('#nOwner').value, due_date: q('#nDue').value })); });
@@ -365,7 +395,6 @@ export function renderDropModal(dropId, focusTaskId = null) {
     row.querySelector('[data-chk]')?.addEventListener('change', e => run(() => setTaskStatus(t, e.target.checked ? 'complete' : 'not_started')));
     row.querySelector('[data-status]').addEventListener('change', e => run(() => setTaskStatus(t, e.target.value)));
     row.querySelector('[data-owner]').addEventListener('change', e => run(() => updateTask(t.id, { owner_role: e.target.value })));
-    row.querySelector('[data-due]').addEventListener('change', e => run(() => updateTask(t.id, { due_date: e.target.value || null, due_locked: !!e.target.value })));
     row.querySelector('[data-workaround]')?.addEventListener('click', () => {
       const text = prompt('Which fallback is being used?', /photo/i.test(`${t.title} ${t.blocker_group}`) ? 'Approved temporary AI photography' : 'Temporary placeholder'); if (!text) return;
       run(() => useWorkaround(t, d, ts, text.trim(), name));

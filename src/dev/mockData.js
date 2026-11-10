@@ -33,6 +33,8 @@ const P = (name, type, category, phase, mfr, drop, extra = {}) => ({ id: uid('dt
 
 export function mockDtcProducts() {
   return [
+    P('Kids Pajamas (collab)', 'other', 'new-design', 'shipping', 'other', day(-8), { units_ordered: 200, quoted_production_weeks: 4, production_started_on: day(-70), production_finished_on: day(-6), carrier: 'ups', tracking_number: '1Z999AA10123456784', shipped_date: day(-6), estimated_delivery_date: day(5) }),
+    P('Strictly Wild Knife (drop-ship)', 'other', 'new-design', 'warehouse', 'other', day(21), { fulfillment: 'dropship' }),
     P('Flannel - Black/Yellow OG', 'flannel', 'new-design', 'warehouse', 'bing-bing', day(-40), { units_ordered: 317, est_cost: 5122 }),
     P('Flannel - Red', 'flannel', 'new-design', 'production', 'bing-bing', day(24), { units_ordered: 315, est_cost: 4782 }),
     P('Flannel - Olive', 'flannel', 'new-design', 'production', 'bing-bing', day(24), { units_ordered: 315, est_cost: 4782 }),

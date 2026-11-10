@@ -81,6 +81,17 @@ assert.match(E.blockerText(photo, '2026-11-20'), /Photography and flat lays - op
 // a drop that launched long ago is not a blocker any more
 assert.equal(E.blockersByGroup([{ ...dropRow, launch_date: '2026-01-02' }], withDrop, () => 'x', '2026-11-20').length, 0);
 
+// Email campaigns are their own phase; drop-ship drops carry no inventory task
+assert.equal(by.email_teaser.phase, 'email'); assert.equal(by.founder_send.phase, 'email'); assert.equal(by.banners.phase, 'creative');
+const ds = E.generateTasks({ ...drop, drop_type: 'dropship' }, templates);
+assert.equal(ds.find(t => t.template_key === 'inventory_counts').status, 'na');
+assert.ok(E.DROP_PHASES.some(p => p.id === 'email') && E.DROP_TYPES.some(t => t.id === 'dropship'));
+// Asset checklist
+assert.deepEqual(E.missingAssetLinks({ social_assets: { done: true, link: '' }, email_assets: { done: true, link: 'https://x' }, ad_assets: { done: false } }).map(a => a.key), ['social_assets']);
+assert.equal(E.taskForCheck(rows, 'walkthrough')?.template_key, 'walkthrough');
+assert.equal(E.taskForCheck(rows, 'email_assets'), null);
+for (const a of E.ASSET_CHECKS) if (a.task) assert.ok(keys.has(a.task), a.task + ' is a real template');
+
 // Week plan
 const wp = E.weekPlan(rows, '2026-11-27');
 assert.deepEqual(wp.days.map(d => d.label), ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);

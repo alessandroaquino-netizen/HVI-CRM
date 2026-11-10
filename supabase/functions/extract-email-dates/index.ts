@@ -13,11 +13,12 @@ Return ONLY a JSON object, no prose:
  "events": [{ "kind": "order_placed"|"sampling_start"|"sampling_end"|"production_start"|"production_end"|"shipped"|"delivery_eta"|"design_end",
               "date": "YYYY-MM-DD", "quote": the exact sentence the date comes from, "confidence": "high"|"medium"|"low" }],
  "tracking": [{ "number": string, "carrier": "fedex"|"ups"|"dhl"|"usps"|"other" }],
- "product": the product or order reference the thread is about (e.g. "HVI2621 Red Flannel") or ""
+ "product": the product or order reference the thread is about (e.g. "HVI2621 Red Flannel") or "",
+ "quantities": { "total": total units ordered or null, "sizes": [{ "size": "S"|"M"|"L"|"XL"|"2XL"|"3XL"|"4XL"|a colour or option name, "qty": number }], "orderRef": "HVI2621" or "" }
 }
 Rules: use the date the email states for the event, not the date it was sent, unless the email says "today" or "yesterday" (then use the email's own sent date). Resolve dates without a year using the year of the email.
 "production_start" is when bulk production begins or is said to be starting ("moving into production"). "sampling_end" is when samples are approved or sent. "shipped" is the departure or dispatch date. "delivery_eta" is an expected arrival date.
-Never invent a date. If the thread states none, return "events": []. Quote the source sentence exactly.`;
+Quantities: only list sizes the thread states with a count; "total" is the order quantity if stated. Never invent a date or a number. If the thread states none, return "events": []. Quote the source sentence exactly.`;
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, "content-type": "application/json" } });
 
@@ -41,7 +42,9 @@ Deno.serve(async (req) => {
     const parsed = JSON.parse(out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1));
     const kinds = new Set(["order_placed", "sampling_start", "sampling_end", "production_start", "production_end", "shipped", "delivery_eta", "design_end"]);
     const events = (parsed.events ?? []).filter((e: { kind: string; date: string }) => kinds.has(e.kind) && /^\d{4}-\d{2}-\d{2}$/.test(e.date));
-    return json({ events, tracking: parsed.tracking ?? [], product: parsed.product ?? "", source: "ai" });
+    const q = parsed.quantities ?? {};
+    const sizes = (q.sizes ?? []).filter((x: { size: string; qty: number }) => x?.size && Number.isFinite(Number(x.qty))).map((x: { size: string; qty: number }) => ({ size: String(x.size), qty: Number(x.qty), quote: "" }));
+    return json({ events, tracking: parsed.tracking ?? [], product: parsed.product ?? "", quantities: { sizes, total: q.total ?? null, ref: q.orderRef ?? "", subject: parsed.product ?? "" }, source: "ai" });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }

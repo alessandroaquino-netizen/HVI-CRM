@@ -1,7 +1,8 @@
-import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, blackoutWarnings, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct, CARRIERS, trackingUrl, daysToDelivery, bestEta } from '../dtc_constants.js';
+import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, blackoutWarnings, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct, CARRIERS, trackingUrl, daysToDelivery, bestEta, productionTime, planBackward, sizesFor } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { TRACKING_STATUSES } from '../tracking/status.js';
 import { costPerUnit } from '../inventory/reconcile.js';
+import { isDroppedNotArrived } from './dtcCalendar.js';
 import { renderListDetail } from './modal.js';
 import { ink, fill } from '../theme.js';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -58,6 +59,8 @@ function productCard(p) {
       ${riskTag(risk)}
       ${p.drop_date ? `<span style="font-size:9px;font-family:var(--mono);color:${weeks!==null&&weeks<4?'var(--red)':'var(--text3)'}">Drop: ${formatDate(p.drop_date)}${weeks!==null?` (${weeks}w)`:''}</span>` : ''}
     </div>
+    ${p.fulfillment === 'dropship' ? '<div style="margin-top:5px"><span class="mo-badge">Drop-ship</span></div>' : ''}
+    ${isDroppedNotArrived(p) ? '<div class="mo-meta" style="margin-top:4px" title="The drop date has passed and the goods are not in the warehouse yet">★ Dropped, not yet in the warehouse</div>' : ''}
     ${shipLine}
     ${payBadge||preMktBadge ? `<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">${payBadge}${preMktBadge}</div>` : ''}
   </div>`;
@@ -167,7 +170,7 @@ function variantRowHtml(v = {}) {
 }
 
 // ─── Detail modal ─────────────────────────────────────────────────────────
-export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, onDelete, onDuplicate, onPhaseChange, onStartPremarketing, onSaveTimeline, onSaveVariants, onSaveShipping, onRefreshTracking, onImportEmail, onOpenMarketing, drop, inventoryRows = [] }) {
+export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, onDelete, onDuplicate, onPhaseChange, onStartPremarketing, onSaveTimeline, onSaveVariants, onSaveShipping, onRefreshTracking, onImportEmail, onOpenMarketing, onSaveProduction, drop, inventoryRows = [] }) {
   const risk   = calcDropRisk(p);
   const weeks  = weeksUntilDrop(p);
   const days   = daysInPhase(p);
@@ -217,10 +220,22 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
     </div>
     <div id="dtcVariantRows">${variants.map(v => variantRowHtml(v)).join('')}</div>
     <div style="display:flex;justify-content:space-between;margin-top:8px">
-      <button class="btn btn-sm btn-ghost" id="dtcAddVariantBtn">+ Add row</button>
+      <span style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm btn-ghost" id="dtcAddVariantBtn">+ Add row</button>${sizesFor(p.product_type).length ? `<button class="btn btn-sm btn-ghost" id="dtcStdSizesBtn" title="Adds ${sizesFor(p.product_type).join(', ')}">Add standard sizes</button>` : ''}</span>
       <button class="btn btn-sm btn-accent" id="dtcSaveVariantsBtn">Save sizes &amp; SKUs</button>
     </div>`;
 
+  const pt = productionTime(p);
+  const pb = ['idea', 'design', 'tech-pack'].includes(p.phase) && p.drop_date ? planBackward({ product_type: p.product_type, category: p.category, drop_date: p.drop_date }) : null;
+  const productionSection = `
+    <div class="section-divider" style="margin-top:1rem">Production time <span style="font-weight:400;text-transform:none;letter-spacing:0">— manufacturer quote vs actual</span></div>
+    <div class="form-grid" style="margin-top:10px">
+      <div class="form-row"><label>Quoted (weeks)</label><input id="pt_quoted" type="number" step="0.5" min="0" value="${p.quoted_production_weeks ?? ''}" placeholder="e.g. 4"></div>
+      <div class="form-row"><label>Actual</label><div class="val" style="padding-top:.55rem">${pt.actual == null ? '<span class="mo-meta">starts when the product enters Production</span>' : `<b>${pt.actual} weeks</b>${pt.running ? ' so far' : ''}${pt.variance == null ? '' : ` <span style="color:${pt.variance > 0 ? 'var(--red)' : 'var(--green)'}">(${pt.variance > 0 ? '+' : ''}${pt.variance} vs quote)</span>`}`}</div></div>
+      <div class="form-row"><label>Production started</label><input id="pt_start" type="date" value="${p.production_started_on || ''}"></div>
+      <div class="form-row"><label>Production finished</label><input id="pt_end" type="date" value="${p.production_finished_on || ''}"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end"><button class="btn btn-sm" id="dtcSaveProdBtn">Save production time</button></div>`;
+  const startByLine = pb ? `<div class="notes-display" style="border-left:3px solid ${pb.startBy < new Date().toISOString().slice(0, 10) ? 'var(--red)' : 'var(--accent)'};margin-top:10px;font-size:13px">To drop on ${formatDate(p.drop_date)}, <b>${esc(pb.firstStage.toLowerCase())} has to start by ${formatDate(pb.startBy)}</b> (${pb.totalWeeks} weeks of lead time).${pb.startBy < new Date().toISOString().slice(0, 10) ? ' That date has already passed.' : ''}</div>` : '';
   const cpu = cost ? costPerUnit(cost, inventoryRows) : null;
   const costSection = cost ? `
     <div class="section-divider" style="margin-top:1rem">Cost per unit <span style="font-weight:400;text-transform:none;letter-spacing:0">— from ${cost.invoice.doc_type === 'proforma' ? 'pro-forma' : 'final invoice'} ${esc(cost.invoice.invoice_number)}</span></div>
@@ -320,7 +335,9 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
         ${p.figma_link?`<div class="detail-field" style="grid-column:span 2"><div class="lbl">Figma</div><div class="val"><a href="${p.figma_link}" target="_blank" style="color:var(--blue)">${p.figma_link}</a></div></div>`:''}
         ${p.tech_pack_link?`<div class="detail-field" style="grid-column:span 2"><div class="lbl">Tech Pack</div><div class="val"><a href="${p.tech_pack_link}" target="_blank" style="color:var(--blue)">${p.tech_pack_link}</a></div></div>`:''}
       </div>
+      ${startByLine}
       ${timelineSection}
+      ${['production', 'shipping', 'warehouse'].includes(p.phase) ? productionSection : ''}
       ${costSection}
       ${samplingSection}
       ${shippingSection}
@@ -350,6 +367,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
     onSaveShipping(p.id, { ...f, shipped_date: f.shipped_date || new Date().toISOString().slice(0, 10) }, 'shipping');
   });
   document.getElementById('dtcMarkReceivedBtn')?.addEventListener('click', () => onSaveShipping(p.id, shipFields(), 'warehouse'));
+  document.getElementById('dtcSaveProdBtn')?.addEventListener('click', () => onSaveProduction(p.id, { quoted_production_weeks: document.getElementById('pt_quoted').value, production_started_on: document.getElementById('pt_start').value, production_finished_on: document.getElementById('pt_end').value }));
   document.getElementById('dtcMktBtn')?.addEventListener('click', () => onOpenMarketing(p.id));
   document.getElementById('dtcEmailBtn')?.addEventListener('click', () => onImportEmail(p));
   document.getElementById('dtcRefreshTrackBtn')?.addEventListener('click', async e => {
@@ -373,6 +391,10 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
   const variantRows = document.getElementById('dtcVariantRows');
   document.getElementById('dtcAddVariantBtn').addEventListener('click', () => {
     variantRows.insertAdjacentHTML('beforeend', variantRowHtml());
+  });
+  document.getElementById('dtcStdSizesBtn')?.addEventListener('click', () => {
+    const have = new Set(Array.from(variantRows.querySelectorAll('.dtc-variant-label')).map(i => i.value.trim()));
+    sizesFor(p.product_type).filter(sz => !have.has(sz)).forEach(sz => variantRows.insertAdjacentHTML('beforeend', variantRowHtml({ option_label: sz })));
   });
   variantRows.addEventListener('click', e => {
     if (e.target.closest('[data-remove-variant-row]')) e.target.closest('[data-variant-row]').remove();
@@ -421,6 +443,9 @@ export function renderDtcProductForm(p = {}, editingId, { onSave }) {
         <div class="form-row"><label>Manufacturer</label>
           <select id="df_manufacturer"><option value="">— Select —</option>${MANUFACTURERS.map(m=>opt(m.id,p.manufacturer,m.label)).join('')}</select>
         </div>
+        <div class="form-row"><label>Fulfillment</label>
+          <select id="df_fulfillment"><option value="own"${p.fulfillment==='dropship'?'':' selected'}>Our own inventory</option><option value="dropship"${p.fulfillment==='dropship'?' selected':''}>Drop-ship (no inventory or cost tracking)</option></select>
+        </div>
         <div class="form-row"><label>Priority</label>
           <select id="df_priority"><option value="">— Select —</option>${PRIORITIES.map(pr=>opt(pr.id,p.priority,pr.label)).join('')}</select>
         </div>
@@ -468,7 +493,7 @@ export function renderDtcProductForm(p = {}, editingId, { onSave }) {
   document.getElementById('dtcFmSave').addEventListener('click', () => {
     onSave({
       name: g('df_name'), product_type: g('df_type'), category: g('df_category'),
-      phase: g('df_phase'), manufacturer: g('df_manufacturer'), priority: g('df_priority'), drop_date: g('df_drop_date'),
+      phase: g('df_phase'), manufacturer: g('df_manufacturer'), priority: g('df_priority'), fulfillment: g('df_fulfillment') || 'own', drop_date: g('df_drop_date'),
       phase_changed_at: g('df_phase_changed_at'), est_cost: g('df_est_cost'), units: g('df_units'),
       figma_link: g('df_figma'), tech_pack_link: g('df_techpack'),
       deposit_50_paid: cb('df_dep50'), final_50_paid: cb('df_fin50'),

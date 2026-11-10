@@ -1,5 +1,6 @@
 // Inventory management: ordered → shipped → received → QC → sellable → shelved / reserve, per product and size.
-import { saveInventoryRow, addInventoryRow, deleteInventoryRow, startCounting, fetchInventoryEvents } from '../controllers/inventory.js';
+import { saveInventoryRow, addInventoryLabels, deleteInventoryRow, startCounting, fetchInventoryEvents } from '../controllers/inventory.js';
+import { sizesFor } from '../dtc_constants.js';
 import { rowGaps, productTotals, costPerUnit } from '../inventory/reconcile.js';
 import { formatDate } from '../utils.js';
 import { stack } from '../viz.js';
@@ -26,7 +27,7 @@ export function renderDtcInventory() {
   const ae = document.activeElement;
   const focusKey = ae && el.contains(ae) ? { id: ae.id, row: ae.closest('[data-inv-row]')?.dataset.invRow, field: ae.dataset?.countInput || (ae.matches?.('[data-inv-note]') ? 'note' : null), pos: ae.selectionStart ?? null } : null;
   const byProduct = new Map(); inventory.forEach(r => { (byProduct.get(r.dtc_product_id) || byProduct.set(r.dtc_product_id, []).get(r.dtc_product_id)).push(r); });
-  const relevant = products.filter(p => byProduct.has(p.id) || STAGES.includes(p.phase));
+  const relevant = products.filter(p => p.fulfillment !== 'dropship' && (byProduct.has(p.id) || STAGES.includes(p.phase)));
   const q = filter.q.toLowerCase();
   const rows = relevant.map(p => ({ p, rows: byProduct.get(p.id) || [] })).map(x => ({ ...x, t: productTotals(x.rows) }))
     .filter(x => (!q || x.p.name.toLowerCase().includes(q)) && (!filter.gaps || x.t.gaps.length) && (filter.stage === 'all' || x.rows.length || x.p.phase === 'warehouse' || x.p.phase === 'shipping' || x.p.phase === 'production')
@@ -68,7 +69,7 @@ export function renderDtcInventory() {
     await guard(() => startCounting(p, variants.filter(v => v.dtc_product_id === p.id), byProduct.get(p.id) || [])); open.add(p.id);
   }));
   el.querySelectorAll('[data-add-row]').forEach(b => b.addEventListener('click', async () => {
-    const label = prompt('Size or option name (for example M, L, XL or Black / S):'); if (label) await guard(() => addInventoryRow(b.dataset.addRow, label.trim()));
+    const label = prompt('Sizes or variants to add, separated by commas (for example 4XL, 5XL or Black, Navy):'); if (label) await guard(() => addInventoryLabels(b.dataset.addRow, label, byProduct.get(b.dataset.addRow) || []));
   }));
   el.querySelectorAll('[data-del-row]').forEach(b => b.addEventListener('click', async () => { if (confirm('Delete this row and its counts?')) await guard(() => deleteInventoryRow(b.dataset.delRow)); }));
   el.querySelectorAll('[data-history]').forEach(b => b.addEventListener('click', () => showHistory(b.dataset.history, products.find(p => p.id === b.dataset.history)?.name)));
@@ -99,7 +100,7 @@ function productBlock({ p, rows, t }, variants, costs) {
           <td><button class="btn btn-sm btn-ghost" data-del-row="${r.id}" title="Delete row">✕</button></td></tr>`).join('')}
         <tr class="inv-total"><td data-label="Total" colspan="2"><b>Total</b></td>${COLS.map(([k]) => `<td><b>${fmt(t[k])}</b></td>`).join('')}<td colspan="2"></td></tr></tbody></table></div>`
       : `<div class="mo-note">No counts started for this product.</div>`}
-      <div class="inv-actions"><button class="btn btn-sm" data-start-count="${p.id}">${rows.length ? 'Add missing sizes from the SKU table' : 'Start counting'}</button><button class="btn btn-sm btn-ghost" data-add-row="${p.id}">＋ Add size</button><button class="btn btn-sm btn-ghost" data-history="${p.id}">Count history</button></div></div>` : ''}
+      <div class="inv-actions"><button class="btn btn-sm" data-start-count="${p.id}">${rows.length ? (sizesFor(p.product_type).length ? 'Add missing standard sizes' : 'Add missing sizes from the SKU table') : (sizesFor(p.product_type).length ? `Start counting (${sizesFor(p.product_type).join(', ')})` : 'Start counting')}</button><button class="btn btn-sm btn-ghost" data-add-row="${p.id}">＋ Add sizes or variants</button><button class="btn btn-sm btn-ghost" data-history="${p.id}">Count history</button></div></div>` : ''}
   </div>`;
 }
 

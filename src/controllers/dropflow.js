@@ -1,6 +1,6 @@
 import { supabase } from '../supabase.js';
 import { getMyEmailAddr } from '../access.js';
-import { generateTasks, preorderTasks, recalcDueDates, defaultVaultDate, isDone, todayStr } from '../dropflow/engine.js';
+import { generateTasks, preorderTasks, recalcDueDates, defaultVaultDate, isDone, todayStr, taskForCheck } from '../dropflow/engine.js';
 
 const me = () => getMyEmailAddr() || 'unknown';
 
@@ -76,6 +76,18 @@ export async function convertToPreorder(drop, tasks, templates, { inventory_eta 
   const inv = tasks.find(t => t.template_key === 'inventory_counts' && !isDone(t));
   if (inv) await updateTask(inv.id, { status: 'na', note: 'Pre-order: stock expected later.' });
   await logEvent(drop.id, 'preorder', `${productName}: converted to pre-order${inventory_eta ? ` (stock expected ${inventory_eta})` : ''}. Update Shopify, email, banners, social and paid messaging.`, ['kuerstine', 'aira', 'ryanne', 'adriana']);
+}
+
+// Ticks (or unticks) an asset on the checklist. The matching workflow task follows the tick, so nobody records the same thing twice.
+export async function setAssetCheck(drop, tasks, key, done, link = '') {
+  const checks = { ...(drop.asset_checks || {}) };
+  checks[key] = { done, link: link.trim(), at: new Date().toISOString(), by: me() };
+  await updateDrop(drop.id, { asset_checks: checks });
+  const t = taskForCheck(tasks, key);
+  if (t && t.status !== 'na') {
+    if (done && t.status !== 'complete') await setTaskStatus(t, 'complete');
+    if (!done && t.status === 'complete') await setTaskStatus(t, 'not_started');
+  }
 }
 
 // ─── Tasks ────────────────────────────────────────────────────────────────
