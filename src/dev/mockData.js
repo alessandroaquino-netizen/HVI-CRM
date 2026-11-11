@@ -127,3 +127,12 @@ export async function mockDropflow(products) {
   if (drops[1]) events.push({ id: uid('ev'), drop_id: drops[1].id, kind: 'preorder', message: `${picks[1].name}: converted to pre-order. Update Shopify, email, banners, social and paid messaging.`, roles: ['kuerstine', 'aira', 'ryanne'], created_by: 'demo@highvoltageindustries.com', created_at: new Date().toISOString() });
   return { loaded: true, error: '', drops, tasks, templates, roles, events };
 }
+
+export async function mockKpis() {
+  const seed = (await import('./kpiSeed.json')).default; const Q = '2026-Q4'; const now = new Date().toISOString();
+  const kpis = seed.kpis.map(k => ({ ...k, id: 'kpi-' + k.key, seed_key: k.key, active: true, created_at: now }));
+  const values = seed.values.map(v => ({ id: `kv-${v.key}-${v.d}`, kpi_id: 'kpi-' + v.key, period_start: v.d, value: v.value, qtd_value: v.qtd, note: null, updated_by: 'demo', updated_at: now }));
+  const rocks = seed.rocks.map(r => ({ id: r.key, seed_key: r.key, quarter: Q, owner_name: r.owner_name, position: r.position, title: r.title, tactics: r.tactics, status: 'not_started', created_at: now, updated_at: now }));
+  const rockKpis = seed.rocks.flatMap(r => r.kpis.map(k => ({ rock_id: r.key, kpi_id: 'kpi-' + k })));
+  return { kpis, values, rocks, rockKpis };
+}

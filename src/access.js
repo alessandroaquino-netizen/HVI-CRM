@@ -20,6 +20,9 @@ export const ACCESS_CATALOG = [
     { id: 'dtcInventory',      label: 'Inventory' },
     { id: 'dtcMarketing',      label: 'Marketing Ops' },
   ]},
+  { module: 'Team', pages: [
+    { id: 'teamScorecard',     label: 'Scorecard & Rocks' },
+  ]},
   { module: 'Resources', pages: [
     { id: 'disc',              label: 'DISC Guide' },
   ]},
