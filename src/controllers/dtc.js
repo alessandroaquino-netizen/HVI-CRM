@@ -205,21 +205,6 @@ export async function updateDtcDropDate(id, date) {
   if (error) throw error;
 }
 
-// Saves the shipping fields; `phase` (optional) moves the product at the same time, e.g. production → shipping.
-export async function saveDtcShipping(id, fields, phase = null) {
-  const today = new Date().toISOString().slice(0, 10);
-  const row = {
-    carrier:                 fields.carrier                 || null,
-    tracking_number:         (fields.tracking_number || '').trim() || null,
-    shipped_date:            fields.shipped_date            || null,
-    estimated_delivery_date: fields.estimated_delivery_date || null,
-    last_activity: today,
-  };
-  if (phase) { row.phase = phase; row.phase_changed_at = today; }
-  const { error } = await supabase.from('dtc_products').update(row).eq('id', id);
-  if (error) throw error;
-}
-
 export async function startPremarketing(id) {
   const today = new Date().toISOString().slice(0, 10);
   const { error } = await supabase.from('dtc_products').update({ premarketing_started_at: today, last_activity: today }).eq('id', id);
