@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { sizesFor, parseLabels, productionTime } from '../src/dtc_constants.js';
+assert.deepEqual(sizesFor('tee'), ['S', 'M', 'L', 'XL', '2XL', '3XL']);
+assert.equal(sizesFor('polo').at(-1), '4XL'); assert.deepEqual(sizesFor('hat-embroidered'), ['One size']); assert.deepEqual(sizesFor('sticker'), []);
+assert.deepEqual(parseLabels(' 4XL, 5XL ;4XL\nBlack '), ['4XL', '5XL', 'Black']);
+const t = productionTime({ quoted_production_weeks: 4, production_started_on: '2026-09-01', production_finished_on: '2026-10-27' });
+assert.deepEqual(t, { quoted: 4, actual: 8, running: false, variance: 4 });
+const r = productionTime({ quoted_production_weeks: '4', production_started_on: '2026-10-20' }, '2026-11-03');
+assert.equal(r.running, true); assert.equal(r.actual, 2); assert.equal(r.variance, -2);
+assert.equal(productionTime({ quoted_production_weeks: 4 }).actual, null);
+console.log('sizes and production time: all checks passed');

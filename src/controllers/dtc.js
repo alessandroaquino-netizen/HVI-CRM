@@ -32,6 +32,18 @@ export function rowToDtcProduct(r) {
     tracking_number:            r.tracking_number            || '',
     shipped_date:               r.shipped_date               || '',
     estimated_delivery_date:    r.estimated_delivery_date    || '',
+    fulfillment:                r.fulfillment                || 'own',
+    relevant_links:             Array.isArray(r.relevant_links) ? r.relevant_links : [],
+    quoted_production_weeks:    r.quoted_production_weeks != null ? Number(r.quoted_production_weeks) : null,
+    production_started_on:      r.production_started_on      || '',
+    production_finished_on:     r.production_finished_on     || '',
+    tracking_status:            r.tracking_status            || '',
+    tracking_status_detail:     r.tracking_status_detail     || '',
+    tracking_eta:               r.tracking_eta               || '',
+    tracking_location:          r.tracking_location          || '',
+    tracking_events:            Array.isArray(r.tracking_events) ? r.tracking_events : [],
+    tracking_delivered_at:      r.tracking_delivered_at      || '',
+    tracking_checked_at:        r.tracking_checked_at        || '',
     created_at:                 r.created_at                 || '',
   };
 }
@@ -61,6 +73,7 @@ function dtcProductToRow(p) {
     units_ordered:  p.units_ordered  != null && p.units_ordered  !== '' ? parseFloat(p.units_ordered)  : null,
     units_received: p.units_received != null && p.units_received !== '' ? parseFloat(p.units_received) : null,
     premarketing_started_at:    p.premarketing_started_at || null,
+    fulfillment:                p.fulfillment === 'dropship' ? 'dropship' : 'own',
     carrier:                    p.carrier          || null,
     tracking_number:            p.tracking_number  || null,
     shipped_date:               p.shipped_date     || null,
@@ -156,6 +169,19 @@ export async function updateDtcPhase(id, phase) {
   const today = new Date().toISOString().slice(0, 10);
   const { error } = await supabase.from('dtc_products').update({ phase, phase_changed_at: today, last_activity: today }).eq('id', id);
   if (error) throw error;
+  // Actual production time is recorded as the product moves: it enters production, then leaves it.
+  if (phase === 'production') await supabase.from('dtc_products').update({ production_started_on: today }).eq('id', id).is('production_started_on', null);
+  if (phase === 'shipping' || phase === 'warehouse') await supabase.from('dtc_products').update({ production_finished_on: today }).eq('id', id).is('production_finished_on', null).not('production_started_on', 'is', null);
+}
+
+// Manufacturer quote and the actual production dates, edited by hand when the phase moves did not capture them.
+export async function saveProductionTimes(id, { quoted_production_weeks, production_started_on, production_finished_on }) {
+  const row = {
+    quoted_production_weeks: quoted_production_weeks === '' || quoted_production_weeks == null ? null : Number(quoted_production_weeks),
+    production_started_on: production_started_on || null, production_finished_on: production_finished_on || null,
+  };
+  const { error } = await supabase.from('dtc_products').update(row).eq('id', id);
+  if (error) throw error;
 }
 
 // Saves the shipping fields; `phase` (optional) moves the product at the same time, e.g. production → shipping.
@@ -170,6 +196,12 @@ export async function saveDtcShipping(id, fields, phase = null) {
   };
   if (phase) { row.phase = phase; row.phase_changed_at = today; }
   const { error } = await supabase.from('dtc_products').update(row).eq('id', id);
+  if (error) throw error;
+}
+
+export async function updateDtcDropDate(id, date) {
+  const today = new Date().toISOString().slice(0, 10);
+  const { error } = await supabase.from('dtc_products').update({ drop_date: date || null, last_activity: today }).eq('id', id);
   if (error) throw error;
 }
 
@@ -279,6 +311,7 @@ export function subscribeToDtc(supabaseClient, onChange) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_financials' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_marketing' }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_product_variants' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'dtc_inventory' }, onChange)
     .subscribe();
 }
 
@@ -294,4 +327,11 @@ export async function upsertVariantsBySku(productId, rows) {
     else { const i = await supabase.from('dtc_product_variants').insert({ dtc_product_id: productId, ...patch }); if (i.error) throw i.error; added++; }
   }
   return { added, updated };
+}
+
+// Any number of labelled links per product (Drive folder, photos, SOP…); only http(s) links are kept.
+export async function saveRelevantLinks(id, links) {
+  const clean = links.filter(l => /^https?:\/\//i.test(l.url)).map(l => ({ label: l.label || l.url, url: l.url }));
+  const { error } = await supabase.from('dtc_products').update({ relevant_links: clean }).eq('id', id);
+  if (error) throw error;
 }

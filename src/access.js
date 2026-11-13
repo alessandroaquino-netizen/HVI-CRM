@@ -17,7 +17,11 @@ export const ACCESS_CATALOG = [
     { id: 'dtcFinancials',     label: 'DTC Financials' },
     { id: 'dtcInvoices',       label: 'DTC Invoices' },
     { id: 'dtcDashboard',      label: 'DTC Dashboard' },
+    { id: 'dtcInventory',      label: 'Inventory' },
     { id: 'dtcMarketing',      label: 'Marketing Ops' },
+  ]},
+  { module: 'Team', pages: [
+    { id: 'teamScorecard',     label: 'Scorecard & Rocks' },
   ]},
   { module: 'Resources', pages: [
     { id: 'disc',              label: 'DISC Guide' },
@@ -27,6 +31,9 @@ export const ACCESS_CATALOG = [
 export const ALL_PAGE_IDS = ACCESS_CATALOG.flatMap(m => m.pages.map(p => p.id));
 
 let myAccess = null;
+let myEmailAddr = '';
+export function setMyEmailAddr(e) { myEmailAddr = (e || '').toLowerCase(); }
+export function getMyEmailAddr() { return myEmailAddr; }
 
 export function setMyAccess(access) { myAccess = access; }
 export function getMyAccess() { return myAccess; }

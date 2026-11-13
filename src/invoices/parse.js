@@ -228,7 +228,7 @@ export function parseInvoiceSheets(sheets, { fileName = '' } = {}) {
     for (const p of pack) {
       const m = lines.find(l => l.lineType === 'product' && norm(l.description) === norm(p.description));
       if (m) {
-        m.packedQuantity = p.pieces;
+        m.packedQuantity = p.pieces; m.grossKg = p.grossKg ?? null; m.cbm = p.cbm ?? null;
         if (m.quantity != null && m.quantity !== p.pieces) {
           warnings.push({ level: 'warn', msg: `"${m.description}": invoiced ${m.quantity} pcs but the packing list shows ${p.pieces}.` });
         }

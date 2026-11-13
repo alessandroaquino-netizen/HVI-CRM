@@ -77,9 +77,9 @@ export function renderDtcFinancials(financials, products, costs = new Map()) {
           <tbody>
             ${mfr.rows.map(f => `<tr>
               <td>${f.product_name||'—'}</td>
-              ${(() => { const c = costs.get(f.dtc_product_id); return c ? `<td style="font-family:var(--mono);font-size:12px">${c.basisUnits || '—'}</td><td style="font-family:var(--mono);font-size:12px" title="Goods $${c.goodsPerUnit ?? '—'} + photography, shipping and fees, from invoice ${c.invoice.invoice_number}">${c.perUnit != null ? '$' + c.perUnit.toFixed(2) : '—'}</td>` : '<td style="color:var(--text3)">—</td><td style="color:var(--text3)">—</td>'; })()}
+              ${(() => { const c = costs.get(f.dtc_product_id); return c ? `<td style="font-family:var(--mono);font-size:12px">${c.basisUnits || '—'}</td><td style="font-family:var(--mono);font-size:12px" title="Goods $${c.goodsPerUnit ?? '—'} + photography $${c.photographyPerUnit ?? '—'} + freight share $${c.shippingPerUnit ?? '—'} per unit, from invoice ${c.invoice.invoice_number}">${c.perUnit != null ? '$' + c.perUnit.toFixed(2) : '—'}${c.sourceUrl ? ` <a href="${c.sourceUrl}" target="_blank" rel="noopener" title="Open the original invoice" style="text-decoration:none">↗</a>` : ''}</td>` : '<td style="color:var(--text3)">—</td><td style="color:var(--text3)">—</td>'; })()}
               <td style="font-family:var(--mono);font-size:11px">${f.order_number||'—'}</td>
-              <td style="font-family:var(--mono);font-size:11px">${f.invoice_number||'—'}</td>
+              <td style="font-family:var(--mono);font-size:11px">${(() => { const c = costs.get(f.dtc_product_id); return c?.sourceUrl && c.invoice.invoice_number === f.invoice_number ? `<a href="${c.sourceUrl}" target="_blank" rel="noopener" style="color:var(--accent)">${f.invoice_number} ↗</a>` : (f.invoice_number||'—'); })()}</td>
               <td>${f.deposit_amount?'$'+Number(f.deposit_amount).toLocaleString():'—'}</td>
               <td style="color:${f.deposit_paid_date?'var(--green)':'var(--red)'}">${f.deposit_paid_date?formatDate(f.deposit_paid_date):'✗'}</td>
               <td>${f.final_amount?'$'+Number(f.final_amount).toLocaleString():'—'}</td>

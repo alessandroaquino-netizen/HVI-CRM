@@ -7,6 +7,21 @@ const round2 = n => Math.round(n * 100) / 100;
 export const DEFAULT_DEPOSIT_PCT = { 'bing-bing': 50, 'screen-printer': 50, 'print-theory': 50, alibaba: 50 };
 const B2B_HINT = /quanta|mslcat|sturgeon|union|b2b|custom order/i;
 
+// Shared freight (courier, duties and taxes billed as one amount for several products) is split by each product's share of the
+// shipment's GROSS WEIGHT from the packing list. This is the HVI landed-cost method (Nov 2026): it does not depend on what the
+// supplier quoted per order on the pro-formas. If a packing list has no gross weights, CBM (volume) is used; if neither exists the
+// caller falls back to pro-forma charges, then goods value. `parts` = [{ productId, weight }]; `others` = weight of lines that are not DTC.
+export function allocateByWeight(amount, parts, others = 0) {
+  const total = parts.reduce((a, p) => a + p.weight, 0) + others;
+  if (!(total > 0)) return null;
+  const res = parts.map(p => ({ productId: p.productId, amount: round2(amount * p.weight / total) }));
+  const otherAmount = others > 0 ? round2(amount * others / total) : 0;
+  const diff = round2(amount - res.reduce((a, r) => a + r.amount, 0) - otherAmount);
+  if (others > 0) return { parts: res, otherAmount: round2(otherAmount + diff) };
+  res[res.length - 1].amount = round2(res[res.length - 1].amount + diff);
+  return { parts: res, otherAmount: 0 };
+}
+
 // Split `amount` across participants. Weights come from the pro-forma charge for each product when known;
 // products without one share what is left by quantity (e.g. a courier bill that grew between PI and final).
 export function allocateShared(amount, parts) {
@@ -45,7 +60,7 @@ export function buildPlan({ parsed, fileName, products, aliases = [], priorInvoi
   // ── resolve product lines ───────────────────────────────────────────────
   const rows = parsed.lines.map((l, i) => ({
     pos: i, description: l.description, lineType: l.lineType, quantity: l.quantity, unitPrice: l.unitPrice, amount: l.amount,
-    packedQuantity: l.packedQuantity ?? null, productId: null, allocation: 'dtc', how: '', confidence: 'none', note: '', candidates: [],
+    packedQuantity: l.packedQuantity ?? null, grossKg: l.grossKg ?? null, cbm: l.cbm ?? null, productId: null, allocation: 'dtc', how: '', confidence: 'none', note: '', candidates: [],
     productHint: l.productHint, generic: !!l.genericDescription,
   }));
   for (const r of rows) { const f = forcedMap[r.description]; if (f && r.lineType !== 'product') { r.productId = f; r.how = 'chosen'; r.confidence = 'certain'; } }
@@ -130,8 +145,8 @@ export function buildPlan({ parsed, fileName, products, aliases = [], priorInvoi
   const partsBase = [];
   for (const r of dtcProductRows) {
     let p = partsBase.find(x => x.productId === r.productId);
-    if (!p) partsBase.push(p = { productId: r.productId, qty: 0, goods: 0 });
-    p.qty += r.quantity || 0; p.goods += r.amount;
+    if (!p) partsBase.push(p = { productId: r.productId, qty: 0, goods: 0, gross: 0, cbm: 0 });
+    p.qty += r.quantity || 0; p.goods += r.amount; p.gross += r.grossKg || 0; p.cbm += r.cbm || 0;
   }
   const priorAmountFor = (productId, type) => {
     let sum = 0;
@@ -146,12 +161,27 @@ export function buildPlan({ parsed, fileName, products, aliases = [], priorInvoi
     const shared = ['shipping', 'photography', 'fee', 'sample_fee'].includes(r.lineType) && !r.productId && r.allocation === 'dtc';
     if (!shared || !partsBase.length || unresolvedProducts) { expanded.push({ ...r, splitOf: null, note: shared && unresolvedProducts ? 'Will be split across products once every product line is matched.' : r.note }); continue; }
     const parts = partsBase.map(p => ({ ...p, priorAmount: priorAmountFor(p.productId, r.lineType) }));
+    // Freight: gross weight → volume → pro-forma charges → goods value (see allocateByWeight).
+    if (r.lineType === 'shipping') {
+      const otherRows = rows.filter(x => x.lineType === 'product' && x.allocation !== 'dtc');
+      for (const [key, label] of [['gross', 'gross weight'], ['cbm', 'volume (CBM)']]) {
+        if (!parts.every(p => p[key] > 0)) continue;
+        const others = otherRows.reduce((a, x) => a + (key === 'gross' ? x.grossKg || 0 : x.cbm || 0), 0);
+        const w = allocateByWeight(r.amount, parts.map(p => ({ productId: p.productId, weight: p[key] })), others);
+        if (!w) continue;
+        w.parts.forEach((a, k) => expanded.push({ ...r, productId: a.productId, amount: a.amount, splitOf: r.pos, splitIndex: k, how: 'allocated', confidence: 'suggested', allocBasis: key === 'gross' ? 'gross_weight' : 'cbm',
+          note: `${parts.length}-way split of ${r.amount} by ${label} on the packing list (${round2(a.amount / r.amount * 100)}%).` }));
+        if (w.otherAmount > 0) expanded.push({ ...r, productId: null, allocation: 'b2b', amount: w.otherAmount, splitOf: r.pos, splitIndex: parts.length, how: 'allocated', confidence: 'suggested', allocBasis: key === 'gross' ? 'gross_weight' : 'cbm', note: `Share of the freight for non-DTC lines on this shipment, by ${label}.` });
+        r.__done = true; break;
+      }
+      if (r.__done) continue;
+    }
     const alloc = allocateShared(r.amount, parts);
     const basis = parts.some(p => p.priorAmount > 0) ? 'pro-forma charges' : 'goods value';
     alloc.forEach((a, k) => expanded.push({
       ...r, productId: a.productId, amount: a.amount, quantity: r.lineType === 'photography' && r.quantity ? null : r.quantity,
-      splitOf: r.pos, splitIndex: k, how: 'allocated', confidence: 'suggested',
-      note: `${alloc.length}-way split of ${r.amount} using ${basis}.`,
+      splitOf: r.pos, splitIndex: k, how: 'allocated', confidence: 'suggested', allocBasis: basis === 'goods value' ? 'goods_value' : 'proforma',
+      note: `${alloc.length}-way split of ${r.amount} using ${basis}${r.lineType === 'shipping' ? ' (no packing-list weights on this invoice)' : ''}.`,
     }));
   }
 

@@ -39,7 +39,7 @@ export async function findDuplicate({ hash, manufacturer, invoiceNumber, docType
 }
 
 // Saves the reviewed plan: original file, invoice, lines, aliases and the per-product financial records.
-export async function saveInvoicePlan({ plan, parsed, file, hash, method, createdBy, products, depositPaidDates = {}, applyFin = new Set() }) {
+export async function saveInvoicePlan({ plan, parsed, file, hash, method, createdBy, products, depositPaidDates = {}, applyFin = new Set(), sourceUrl = null }) {
   const h = plan.header;
   const dup = await findDuplicate({ hash, manufacturer: h.manufacturer, invoiceNumber: h.invoiceNumber, docType: h.docType });
   if (dup) throw new Error(dup.kind === 'file' ? `This exact file was already imported as ${dup.invoice.doc_type} ${dup.invoice.invoice_number}.` : `${h.docType} ${h.invoiceNumber} is already imported.`);
@@ -54,13 +54,13 @@ export async function saveInvoicePlan({ plan, parsed, file, hash, method, create
     manufacturer: h.manufacturer || null, invoice_number: h.invoiceNumber, doc_type: h.docType, invoice_date: h.invoiceDate || null,
     currency: h.currency || 'USD', total_amount: h.total, deposit_paid: parsed.totals.deposit || null, overpaid_amount: parsed.totals.overpaid || null,
     balance_due: parsed.totals.balance, deposits: parsed.totals.deposits, refs: h.refs, file_name: file?.name || null, file_path: filePath, file_hash: hash || null,
-    extraction_method: method, warnings: plan.warnings.filter(w => w.level !== 'info'), created_by: createdBy,
+    extraction_method: method, source_url: sourceUrl || null, warnings: plan.warnings.filter(w => w.level !== 'info'), created_by: createdBy,
   }).select('id').single();
   if (error) throw error;
 
   const rows = plan.rows.map((r, i) => ({
     invoice_id: inv.id, position: i, description: r.description, line_type: r.lineType, quantity: r.quantity, unit_price: r.unitPrice, amount: r.amount,
-    packed_quantity: r.packedQuantity, dtc_product_id: r.allocation === 'dtc' ? r.productId : null, allocation: r.allocation, split_of: r.splitOf ?? null, note: r.note || null,
+    packed_quantity: r.packedQuantity, gross_weight_kg: r.grossKg ?? null, cbm: r.cbm ?? null, alloc_basis: r.allocBasis ?? null, dtc_product_id: r.allocation === 'dtc' ? r.productId : null, allocation: r.allocation, split_of: r.splitOf ?? null, note: r.note || null,
   }));
   const ins = await supabase.from('dtc_invoice_lines').insert(rows);
   if (ins.error) { await supabase.from('dtc_invoices').delete().eq('id', inv.id); throw ins.error; }
@@ -105,6 +105,14 @@ export async function invoiceFileUrl(path) {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
   if (error) throw error;
   return data.signedUrl;
+}
+
+// Link to the original supplier document (e.g. a Google Drive file), shown next to the cost in Financials.
+export async function saveInvoiceSourceUrl(id, url) {
+  const clean = (url || '').trim();
+  if (clean && !/^https?:\/\//i.test(clean)) throw new Error('The link must start with http:// or https://');
+  const { error } = await supabase.from('dtc_invoices').update({ source_url: clean || null }).eq('id', id);
+  if (error) throw error;
 }
 
 export async function attachOriginalFile(invoice, file, hash) {

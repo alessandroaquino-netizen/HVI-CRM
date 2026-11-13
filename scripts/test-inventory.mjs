@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import { rowGaps, productTotals, costPerUnit } from '../src/inventory/reconcile.js';
+const r = (o) => ({ qty_ordered: null, qty_shipped: null, qty_received: null, qty_rejected: null, qty_sellable: null, qty_shelved: null, qty_reserve: null, ...o });
+assert.deepEqual(rowGaps(r({ qty_ordered: 100 })), [], 'nothing entered, nothing to compare');
+assert.equal(rowGaps(r({ qty_ordered: 100, qty_shipped: 96 }))[0].diff, 4);
+assert.equal(rowGaps(r({ qty_ordered: 100, qty_shipped: 100, qty_received: 97 }))[0].id, 'received');
+assert.equal(rowGaps(r({ qty_ordered: 100, qty_received: 97 }))[0].label, 'Received fewer than ordered');
+assert.deepEqual(rowGaps(r({ qty_ordered: 100, qty_shipped: 100, qty_received: 100, qty_rejected: 3, qty_sellable: 97 })), []);
+assert.equal(rowGaps(r({ qty_received: 100, qty_rejected: 3, qty_sellable: 95 }))[0].diff, 2);
+assert.equal(rowGaps(r({ qty_sellable: 97, qty_shelved: 40, qty_reserve: 50 }))[0].id, 'shelved');
+const t = productTotals([r({ qty_ordered: 50, qty_received: 48 }), r({ qty_ordered: 60, qty_received: 60, qty_sellable: 58, qty_rejected: 2 })]);
+assert.equal(t.qty_ordered, 110); assert.equal(t.qty_received, 108); assert.equal(t.qty_sellable, 58); assert.equal(t.qty_shipped, null);
+assert.equal(t.gaps.length, 1);
+const cost = { total: 1000, perUnit: 10, basisUnits: 100 };
+assert.deepEqual(costPerUnit(cost, [r({ qty_sellable: 80 })]), { perUnit: 12.5, units: 80, basis: 'sellable' });
+assert.deepEqual(costPerUnit(cost, [r({ qty_ordered: 100 })]), { perUnit: 10, units: 100, basis: 'invoice' });
+assert.equal(costPerUnit(null, []), null);
+console.log('inventory reconcile: all checks passed');

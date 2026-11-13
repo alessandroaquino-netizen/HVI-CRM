@@ -1,5 +1,7 @@
 import { calcDropRisk, MANUFACTURER_BLACKOUTS, MANUFACTURERS, CARRIERS } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
+import { isDone } from '../dropflow/engine.js';
+import { productTotals } from '../inventory/reconcile.js';
 import { getMyAccess } from '../access.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -68,6 +70,24 @@ export function renderSummary(ctx) {
       }
     }
     block('Manufacturer closures and cutoffs (next 120 days)', warnings, { goView: 'dtcCalendar', goLabel: 'Open DTC calendar' });
+  }
+  if (ctx.can('dtcMarketing') && ctx.dropflow?.loaded) {
+    const live = new Set(ctx.dropflow.drops.filter(d => d.launch_date >= today).map(d => d.id));
+    const name = id => { const d = ctx.dropflow.drops.find(x => x.id === id); return ctx.products.find(p => p.id === d?.dtc_product_id)?.name || 'Drop'; };
+    const roleOf = r => ctx.dropflow.roles.find(x => x.role === r)?.display_name || r;
+    // Tasks are assigned to the person whose login is linked to the role (Marketing Ops → Workflow settings → Team).
+    // Administrators without a linked role see everyone's overdue tasks; everyone else sees only their own.
+    const myRoles = new Set(ctx.dropflow.roles.filter(r => r.email && r.email.toLowerCase() === (ctx.email || '').toLowerCase()).map(r => r.role));
+    const mine = t => myRoles.size ? myRoles.has(t.owner_role) : !!ctx.isAdmin;
+    const open = ctx.dropflow.tasks.filter(t => live.has(t.drop_id) && !isDone(t) && t.due_date && mine(t)).sort((a, b) => a.due_date.localeCompare(b.due_date));
+    const late = open.filter(t => t.due_date < today), soon = open.filter(t => t.due_date >= today && t.due_date <= addDays(today, 7));
+    const who = myRoles.size ? 'Your marketing tasks' : 'Marketing tasks';
+    block(`${who} overdue for upcoming drops`, late.slice(0, 10).map(t => row(`data-go-view="dtcMarketing"`, t.title, `${name(t.drop_id)} · ${roleOf(t.owner_role)}`, formatDate(t.due_date), 'var(--red)')), { color: 'var(--red)', goView: 'dtcMarketing', goLabel: 'Open Marketing Ops' });
+    block(`${who} due in the next 7 days`, soon.slice(0, 10).map(t => row(`data-go-view="dtcMarketing"`, t.title, `${name(t.drop_id)} · ${roleOf(t.owner_role)}`, formatDate(t.due_date))), { goView: 'dtcMarketing', goLabel: 'Open Marketing Ops' });
+  }
+  if (ctx.can('dtcInventory') && ctx.inventory) {
+    const gaps = ctx.products.map(p => ({ p, t: productTotals(ctx.inventory.filter(r => r.dtc_product_id === p.id)) })).filter(x => x.t.gaps.length);
+    block('Inventory counts that do not reconcile', gaps.map(({ p, t }) => row(`data-go-view="dtcInventory"`, p.name, t.gaps.slice(0, 2).map(g => `${g.option}: ${g.label}`).join(' · '), `${t.gaps.length} gap${t.gaps.length > 1 ? 's' : ''}`, 'var(--accent)')), { goView: 'dtcInventory', goLabel: 'Open Inventory' });
   }
   if (ctx.can('dtcFinancials')) {
     const soon = ctx.financials.filter(f => outstanding(f) > 0 && f.expected_next_payment_date && f.expected_next_payment_date <= addDays(today, 7)).sort((a, b) => a.expected_next_payment_date.localeCompare(b.expected_next_payment_date));
