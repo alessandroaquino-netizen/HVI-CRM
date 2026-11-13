@@ -3,6 +3,8 @@
 What goes to production: everything built in TEST since the shipping phase (calendar, inventory, tracking links, Marketing Ops, round 3 and 4,
 landed-cost method, invoice verification, Scorecard & Rocks). What does **not** go: test data and dummy data (listed at the bottom).
 
+**Shortcut:** `production_phase_b/01_run_in_order.sql` is steps 1 to 9 in one file (paste and run once, after the pre-check).
+
 ## Order (every file is idempotent: running it twice changes nothing)
 Run in the **production** Supabase SQL Editor, one file at a time, **before** merging the pull request.
 
