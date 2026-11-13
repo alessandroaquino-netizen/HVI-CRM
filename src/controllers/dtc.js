@@ -33,6 +33,7 @@ export function rowToDtcProduct(r) {
     shipped_date:               r.shipped_date               || '',
     estimated_delivery_date:    r.estimated_delivery_date    || '',
     fulfillment:                r.fulfillment                || 'own',
+    relevant_links:             Array.isArray(r.relevant_links) ? r.relevant_links : [],
     quoted_production_weeks:    r.quoted_production_weeks != null ? Number(r.quoted_production_weeks) : null,
     production_started_on:      r.production_started_on      || '',
     production_finished_on:     r.production_finished_on     || '',
@@ -326,4 +327,11 @@ export async function upsertVariantsBySku(productId, rows) {
     else { const i = await supabase.from('dtc_product_variants').insert({ dtc_product_id: productId, ...patch }); if (i.error) throw i.error; added++; }
   }
   return { added, updated };
+}
+
+// Any number of labelled links per product (Drive folder, photos, SOP…); only http(s) links are kept.
+export async function saveRelevantLinks(id, links) {
+  const clean = links.filter(l => /^https?:\/\//i.test(l.url)).map(l => ({ label: l.label || l.url, url: l.url }));
+  const { error } = await supabase.from('dtc_products').update({ relevant_links: clean }).eq('id', id);
+  if (error) throw error;
 }

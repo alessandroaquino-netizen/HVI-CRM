@@ -318,3 +318,10 @@ export const SIZE_TEMPLATES = {
 export const sizesFor = productType => SIZE_TEMPLATES[productType] || [];
 // Splits "4XL, 5XL" or "Black / Red" lists typed by hand into clean, de-duplicated labels.
 export function parseLabels(text) { return [...new Set(String(text || '').split(/[,;\n]/).map(x => x.trim()).filter(Boolean))]; }
+
+// Every size the team may need, for the checkbox picker (small through 5XL, plus tall sizes). Colors or other variants go in the free-text box.
+export const SIZE_GROUPS = [
+  { label: 'Standard', sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'] },
+  { label: 'Tall', sizes: ['LT', 'XLT', '2XLT', '3XLT'] },
+  { label: 'Other', sizes: ['One size'] },
+];

@@ -19,7 +19,7 @@ import {
   subscribeToActivity as subscribeToLeadActivity,
 } from './controllers/leadActivity.js';
 import {
-  fetchDtcProducts, saveDtcProduct, saveDtcShipping, updateDtcPhase, deleteDtcProduct, startPremarketing,
+  fetchDtcProducts, saveDtcProduct, saveRelevantLinks, saveDtcShipping, updateDtcPhase, deleteDtcProduct, startPremarketing,
   fetchDtcFinancials, saveDtcFinancial, deleteDtcFinancial,
   fetchDtcMarketing, subscribeToDtc, updateDtcDropDate, saveProductionTimes,
   fetchDtcVariants, saveDtcVariants, variantsForProduct, copyDtcVariants, upsertVariantsBySku,
@@ -62,7 +62,7 @@ import { renderSummary } from './views/summary.js';
 import { renderSkuImport } from './views/skuImport.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initResponsive } from './responsive.js';
-import { fetchInvoices, fetchAliases, saveInvoicePlan, deleteInvoice, invoiceFileUrl, attachOriginalFile } from './controllers/invoices.js';
+import { fetchInvoices, fetchAliases, saveInvoicePlan, deleteInvoice, invoiceFileUrl, attachOriginalFile, saveInvoiceSourceUrl } from './controllers/invoices.js';
 import { readInvoiceFile, makeAiExtractor, sha256 } from './invoices/readFile.js';
 import { renderDtcInvoices, renderInvoiceReview, renderInvoiceDetail } from './views/dtcInvoices.js';
 import { productCosts } from './invoices/cost.js';
@@ -130,7 +130,7 @@ function render() {
   if (currentView === 'leadDashboard')     renderDashboard(leads, projects);
   if (currentView === 'projectsDashboard') renderProjectsDashboard(projects, projectActivity, projectStageDates);
   if (currentView === 'dtcProducts')       renderDtcProducts(dtcProducts, { onRefreshTracking: refreshAllTracking });
-  if (currentView === 'dtcCalendar')       renderDtcCalendar(dtcProducts, dtcPhaseDates, { onMoveDrop: handleMoveDrop, onPreview: previewDropMove, events: calendarEvents, onSaveEvent: async (e, id) => { await saveCalendarEvent(e, id); await refresh(); }, onDeleteEvent: async id => { await deleteCalendarEvent(id); await refresh(); } });
+  if (currentView === 'dtcCalendar')       renderDtcCalendar(dtcProducts, dtcPhaseDates, { onMoveDrop: handleMoveDrop, onPreview: previewDropMove, onAddToPipeline: handleAddToPipeline, events: calendarEvents, onSaveEvent: async (e, id) => { await saveCalendarEvent(e, id); await refresh(); }, onDeleteEvent: async id => { await deleteCalendarEvent(id); await refresh(); } });
   if (currentView === 'dtcFinancials')     renderDtcFinancials(dtcFinancials, dtcProducts, productCosts(dtcInvoices));
   if (currentView === 'dtcDashboard')      renderDtcDashboard(dtcProducts, dtcFinancials);
   if (currentView === 'dtcMarketing')      renderMarketingOps();
@@ -138,8 +138,8 @@ function render() {
   if (currentView === 'teamScorecard')     renderTeamScorecard();
   if (currentView === 'settings')          renderSettings(appUsers, myEmail, settingsHandlers);
   if (currentView === 'necaLeads')         renderNecaLeads(necaLeads, { onOpen: openNecaDetail, onMatch: handleNecaMatch, onAdd: openAddPotentialLead });
-  if (currentView === 'summary')           renderSummary({ leads, necaLeads, products: dtcProducts, financials: dtcFinancials, invoices: dtcInvoices, dropflow, inventory: dtcInventory, can: canView });
-  if (currentView === 'dtcInvoices')       renderDtcInvoices(dtcInvoices, dtcProducts, { onUpload: handleInvoiceUpload, onOpen: openInvoiceDetail });
+  if (currentView === 'summary')           renderSummary({ leads, necaLeads, products: dtcProducts, financials: dtcFinancials, invoices: dtcInvoices, dropflow, inventory: dtcInventory, can: canView, email: myEmail, isAdmin: isAdmin() });
+  if (currentView === 'dtcInvoices')       renderDtcInvoices(dtcInvoices, dtcProducts, { onUpload: handleInvoiceUpload, onOpen: openInvoiceDetail, costs: productCosts(dtcInvoices), rerender: render });
 }
 
 const MOCK = import.meta.env.DEV && new URLSearchParams(location.search).has('mock');
@@ -148,7 +148,7 @@ async function applyMock() {
   leads = m.mockLeads(); projects = m.mockProjects(leads); dtcProducts = m.mockDtcProducts(); dtcFinancials = m.mockDtcFinancials(dtcProducts);
   dtcInvoices = m.mockInvoices(dtcProducts); necaLeads = m.mockNeca(leads); necaLoaded = true;
   projectStageDates = []; projectActivity = []; leadActivity = []; dtcMarketing = []; dtcVariants = []; dtcPhaseDates = []; dtcAliases = []; appUsers = [];
-  dtcInventory = m.mockInventory(dtcProducts); dropflow = await m.mockDropflow(dtcProducts); kpiData = await m.mockKpis();
+  dtcInventory = m.mockInventory(dtcProducts); dropflow = await m.mockDropflow(dtcProducts); kpiData = await m.mockKpis(); appUsers = [{ email: 'demo@highvoltageindustries.com', full_name: 'Demo Admin', role: 'admin', status: 'active', pages: [] }, { email: 'aira.viray@highvoltageindustries.com', full_name: 'Aira Viray', role: 'member', status: 'active', pages: [] }];
   render();
 }
 
@@ -182,6 +182,13 @@ async function refresh() {
   appUsers = appUsersRes;
   dtcInvoices = invoicesRes; dtcAliases = aliasesRes; dtcInventory = inventoryRes; calendarEvents = eventsRes; dropflow = dropflowRes; kpiData = kpiRes;
   render();
+}
+
+// T-minus planner → DTC pipeline: creates the product at the first stage that is not done, with the planned phase dates.
+async function handleAddToPipeline({ product, phases }) {
+  const id = await saveDtcProduct(product, null);
+  if (phases.length) await saveDtcPhaseDates(id, phases);
+  await refresh();
 }
 
 // ---------- navigation ----------
@@ -388,6 +395,7 @@ function openDtcProductDetail(id) {
       onRefreshTracking:   handleRefreshTracking,
       onImportEmail:       handleImportEmail,
       onOpenMarketing:     handleOpenMarketing,
+      onSaveLinks:         async (id, links) => { try { await saveRelevantLinks(id, links); await refresh(); openDtcProductDetail(id); } catch (e) { alert('Could not save the links (has migration_round4.sql been run?): ' + e.message); } },
       onSaveProduction:    async (id, f) => { try { await saveProductionTimes(id, f); await refresh(); openDtcProductDetail(id); } catch (e) { alert('Could not save: ' + e.message); } },
       drop:                dropForProduct(dropflow.drops, id),
       inventoryRows:       dtcInventory.filter(r => r.dtc_product_id === id),
@@ -743,6 +751,9 @@ function openInvoiceDetail(id) {
     onOpenFile: async i => {
       try { window.open(await invoiceFileUrl(i.file_path), '_blank', 'noopener'); } catch (err) { alert('Could not open the file: ' + err.message); }
     },
+    onSaveSource: async (i, url) => {
+      try { await saveInvoiceSourceUrl(i.id, url); await refresh(); openInvoiceDetail(i.id); } catch (err) { alert('Could not save the link: ' + err.message); }
+    },
     onAttach: async (i, file) => {
       try { await attachOriginalFile(i, file, await sha256(await file.arrayBuffer())); await refresh(); openInvoiceDetail(i.id); }
       catch (err) { alert('Could not attach the file: ' + err.message); }
@@ -897,7 +908,7 @@ async function bootstrap() {
     get: () => ({ ...dropflow, products: dtcProducts, inventory: dtcInventory, users: appUsers }),
     refresh, canEditSettings: () => isAdmin(), email: () => myEmail, syncProductDate: (productId, date) => updateDtcDropDate(productId, date), openProduct: id => { closeModal(); setView('dtcProducts'); openDtcProductDetail(id); },
   });
-  initTeam({ get: () => kpiData, isAdmin, refresh });
+  initTeam({ get: () => kpiData, isAdmin, refresh, users: () => appUsers, email: () => myEmail });
   initInventory({ get: () => ({ products: dtcProducts, inventory: dtcInventory, variants: dtcVariants, costs: productCosts(dtcInvoices) }), refresh });
   wireEvents();
   initResponsive();

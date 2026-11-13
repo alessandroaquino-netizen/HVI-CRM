@@ -1,4 +1,5 @@
 import { DTC_PHASES, PRODUCT_TYPES, PRODUCT_CATEGORIES, PRIORITIES, MANUFACTURERS, blackoutWarnings, calcDropRisk, daysInPhase, weeksUntilDrop, getLeadWeeks, phaseDatesForProduct, CARRIERS, trackingUrl, daysToDelivery, bestEta, productionTime, planBackward, sizesFor } from '../dtc_constants.js';
+import { pickSizes } from './sizePicker.js';
 import { formatDate } from '../utils.js';
 import { TRACKING_STATUSES } from '../tracking/status.js';
 import { costPerUnit } from '../inventory/reconcile.js';
@@ -170,7 +171,16 @@ function variantRowHtml(v = {}) {
 }
 
 // ─── Detail modal ─────────────────────────────────────────────────────────
-export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, onDelete, onDuplicate, onPhaseChange, onStartPremarketing, onSaveTimeline, onSaveVariants, onSaveShipping, onRefreshTracking, onImportEmail, onOpenMarketing, onSaveProduction, drop, inventoryRows = [] }) {
+// "Relevant links": any number of labelled links per product (Drive folder, Figma, tech pack, photos, SOP…), edited in place.
+const linkRowHtml = (l = {}) => `<div class="mo-link-row" data-link-row><input class="rl-label" placeholder="Label (e.g. Drive folder)" value="${esc(l.label || '')}"><input class="rl-url" type="url" placeholder="https://…" value="${esc(l.url || '')}">${l.url ? `<a class="btn btn-sm btn-ghost" href="${esc(l.url)}" target="_blank" rel="noopener" title="Open">↗</a>` : ''}<button class="btn btn-sm btn-ghost" data-rl-remove title="Remove" aria-label="Remove link">✕</button></div>`;
+function linksSection(p) {
+  const links = Array.isArray(p.relevant_links) ? p.relevant_links : [];
+  return `<div class="section-divider" style="margin-top:1rem">Relevant links</div>
+    <div id="dtcLinkRows" style="margin-top:8px">${links.map(linkRowHtml).join('')}</div>
+    <div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-sm btn-ghost" id="dtcAddLink">+ Add link</button><button class="btn btn-sm btn-accent" id="dtcSaveLinks">Save links</button></div>`;
+}
+
+export function renderDtcProductDetail(p, phaseDates, variants, { cost, onSaveLinks, onEdit, onDelete, onDuplicate, onPhaseChange, onStartPremarketing, onSaveTimeline, onSaveVariants, onSaveShipping, onRefreshTracking, onImportEmail, onOpenMarketing, onSaveProduction, drop, inventoryRows = [] }) {
   const risk   = calcDropRisk(p);
   const weeks  = weeksUntilDrop(p);
   const days   = daysInPhase(p);
@@ -220,7 +230,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
     </div>
     <div id="dtcVariantRows">${variants.map(v => variantRowHtml(v)).join('')}</div>
     <div style="display:flex;justify-content:space-between;margin-top:8px">
-      <span style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm btn-ghost" id="dtcAddVariantBtn">+ Add row</button>${sizesFor(p.product_type).length ? `<button class="btn btn-sm btn-ghost" id="dtcStdSizesBtn" title="Adds ${sizesFor(p.product_type).join(', ')}">Add standard sizes</button>` : ''}</span>
+      <span style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm btn-ghost" id="dtcAddVariantBtn">+ Add row</button><button class="btn btn-sm btn-ghost" id="dtcPickSizesBtn">Pick sizes</button>${sizesFor(p.product_type).length ? `<button class="btn btn-sm btn-ghost" id="dtcStdSizesBtn" title="Adds ${sizesFor(p.product_type).join(', ')}">Add standard sizes</button>` : ''}</span>
       <button class="btn btn-sm btn-accent" id="dtcSaveVariantsBtn">Save sizes &amp; SKUs</button>
     </div>`;
 
@@ -238,11 +248,11 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
   const startByLine = pb ? `<div class="notes-display" style="border-left:3px solid ${pb.startBy < new Date().toISOString().slice(0, 10) ? 'var(--red)' : 'var(--accent)'};margin-top:10px;font-size:13px">To drop on ${formatDate(p.drop_date)}, <b>${esc(pb.firstStage.toLowerCase())} has to start by ${formatDate(pb.startBy)}</b> (${pb.totalWeeks} weeks of lead time).${pb.startBy < new Date().toISOString().slice(0, 10) ? ' That date has already passed.' : ''}</div>` : '';
   const cpu = cost ? costPerUnit(cost, inventoryRows) : null;
   const costSection = cost ? `
-    <div class="section-divider" style="margin-top:1rem">Cost per unit <span style="font-weight:400;text-transform:none;letter-spacing:0">— from ${cost.invoice.doc_type === 'proforma' ? 'pro-forma' : 'final invoice'} ${esc(cost.invoice.invoice_number)}</span></div>
+    <div class="section-divider" style="margin-top:1rem">Cost per unit <span style="font-weight:400;text-transform:none;letter-spacing:0">— from ${cost.invoice.doc_type === 'proforma' ? 'pro-forma' : 'final invoice'} ${esc(cost.invoice.invoice_number)}${cost.sourceUrl ? ` · <a href="${esc(cost.sourceUrl)}" target="_blank" rel="noopener" style="color:var(--accent)">open the original ↗</a>` : ''}</span></div>
     <div class="detail-grid" style="margin-top:10px">
       <div class="detail-field"><div class="lbl">Goods</div><div class="val">$${cost.goods.toLocaleString()}</div></div>
       <div class="detail-field"><div class="lbl">Photography</div><div class="val">$${cost.photography.toLocaleString()}</div></div>
-      <div class="detail-field"><div class="lbl">Shipping and duty</div><div class="val">$${cost.shipping.toLocaleString()}</div></div>
+      <div class="detail-field"><div class="lbl">Shipping and duty</div><div class="val">$${cost.shipping.toLocaleString()}</div>${(() => { const b = { gross_weight: cost.invoiceGrossKg > 0 ? `by gross weight: ${cost.grossKg} of ${cost.invoiceGrossKg} kg on the packing list` : 'by gross weight', cbm: 'by volume (CBM)', proforma: 'by the pro-forma charge', goods_value: 'by goods value' }[cost.shippingBasis]; return b ? `<div class="mo-meta">Share of the shipment's freight, ${b}.</div>` : ''; })()}</div>
       <div class="detail-field"><div class="lbl">Fees and samples</div><div class="val">$${cost.fees.toLocaleString()}</div></div>
       <div class="detail-field"><div class="lbl">Landed total</div><div class="val">$${cost.total.toLocaleString()}</div></div>
       <div class="detail-field"><div class="lbl">Cost per unit (${cpu ? cpu.units : cost.basisUnits} ${cpu?.basis === 'sellable' ? 'sellable' : 'invoiced'} units)</div><div class="val" style="color:var(--accent)">${cpu ? '$' + cpu.perUnit.toFixed(2) : '—'}</div>${cpu?.basis === 'sellable' ? '<div class="mo-meta">Counted in Inventory; rejects and shortages raise the cost.</div>' : ''}</div>
@@ -338,6 +348,7 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
       ${startByLine}
       ${timelineSection}
       ${['production', 'shipping', 'warehouse'].includes(p.phase) ? productionSection : ''}
+      ${linksSection(p)}
       ${costSection}
       ${samplingSection}
       ${shippingSection}
@@ -391,6 +402,14 @@ export function renderDtcProductDetail(p, phaseDates, variants, { cost, onEdit, 
   const variantRows = document.getElementById('dtcVariantRows');
   document.getElementById('dtcAddVariantBtn').addEventListener('click', () => {
     variantRows.insertAdjacentHTML('beforeend', variantRowHtml());
+  });
+  const linkRows = document.getElementById('dtcLinkRows');
+  document.getElementById('dtcAddLink')?.addEventListener('click', () => linkRows.insertAdjacentHTML('beforeend', linkRowHtml()));
+  linkRows?.addEventListener('click', e => { if (e.target.closest('[data-rl-remove]')) e.target.closest('[data-link-row]').remove(); });
+  document.getElementById('dtcSaveLinks')?.addEventListener('click', () => onSaveLinks?.(p.id, [...linkRows.querySelectorAll('[data-link-row]')].map(r => ({ label: r.querySelector('.rl-label').value.trim(), url: r.querySelector('.rl-url').value.trim() })).filter(l => l.url)));
+  document.getElementById('dtcPickSizesBtn')?.addEventListener('click', () => {
+    const labels = () => Array.from(variantRows.querySelectorAll('.dtc-variant-label')).map(i => i.value.trim()).filter(Boolean);
+    pickSizes({ title: `Pick sizes · ${p.name}`, have: labels(), suggested: sizesFor(p.product_type), onAdd: async add => { add.forEach(sz => variantRows.insertAdjacentHTML('beforeend', variantRowHtml({ option_label: sz }))); } });
   });
   document.getElementById('dtcStdSizesBtn')?.addEventListener('click', () => {
     const have = new Set(Array.from(variantRows.querySelectorAll('.dtc-variant-label')).map(i => i.value.trim()));

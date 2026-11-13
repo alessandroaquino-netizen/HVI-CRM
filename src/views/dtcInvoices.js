@@ -2,6 +2,7 @@ import { MANUFACTURERS } from '../dtc_constants.js';
 import { formatDate } from '../utils.js';
 import { buildPlan } from '../invoices/plan.js';
 import { ACCEPTED_TYPES } from '../invoices/readFile.js';
+import { verifyInvoices } from '../invoices/verify.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => (n == null || n === '' ? '—' : '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
@@ -12,15 +13,44 @@ const LEVEL_STYLE = { error: 'var(--red)', warn: 'var(--accent)', info: 'var(--t
 const CONF_STYLE = { certain: 'var(--green)', chosen: 'var(--green)', suggested: 'var(--accent)', conflict: 'var(--red)', none: 'var(--red)' };
 
 // ─── List page ────────────────────────────────────────────────────────────
-export function renderDtcInvoices(invoices, products, { onUpload, onOpen }) {
+let invTab = 'list';
+const tabsHtml = n => `<div class="mo-tabs" style="margin-bottom:12px"><button class="mo-tab${invTab === 'list' ? ' active' : ''}" data-inv-tab="list">Invoices</button><button class="mo-tab${invTab === 'verify' ? ' active' : ''}" data-inv-tab="verify">Verification${n ? ` <span class="mo-count">${n}</span>` : ''}</button></div>`;
+
+// ─── Verification: price changes, quantity changes, freight, outliers ─────────
+function renderVerify(el, invoices, products, costs, props) {
+  const { findings, unitPrices, freightPerKg } = verifyInvoices(invoices, products, costs);
+  const SEV = { error: ['✗', 'var(--red)', 'Error'], warn: ['⚠', 'var(--accent)', 'Check'], info: ['ℹ', 'var(--text3)', 'Info'] };
+  const counts = { error: 0, warn: 0, info: 0 }; findings.forEach(f => counts[f.severity]++);
+  const kpi = (l, v, c) => `<div class="kpi-card" style="padding:.9rem 1.1rem"><div class="kpi-label">${l}</div><div class="kpi-val" style="font-size:22px;${c ? `color:${c}` : ''}">${v}</div></div>`;
+  el.innerHTML = `${tabsHtml(counts.error + counts.warn)}
+    <div class="mo-note"><b>How costs are calculated:</b> cost per unit = (goods + photography + share of the shipment's freight) ÷ units on the final invoice. Freight is shared by each product's gross weight on the packing list. Deposits are payments toward the order, not extra cost. This page compares every final invoice with its pro-forma and with the other products from the same supplier. These are things to check against the original document, not corrections.</div>
+    <div class="proj-summary" style="grid-template-columns:repeat(4,minmax(0,1fr));margin:12px 0">${kpi('Errors', counts.error, counts.error ? 'var(--red)' : null)}${kpi('To check', counts.warn, counts.warn ? 'var(--accent)' : null)}${kpi('For information', counts.info)}${kpi('Invoices reviewed', invoices.length)}</div>
+    ${findings.length ? `<div class="sc-wrap"><table class="list-table"><thead><tr><th></th><th>Invoice</th><th>Finding</th><th></th></tr></thead><tbody>${findings.map(f => `<tr>
+      <td style="color:${SEV[f.severity][1]};white-space:nowrap" title="${SEV[f.severity][2]}">${SEV[f.severity][0]}</td>
+      <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${esc(f.invoiceNumber || '—')}<div style="font-size:10px;color:var(--text3)">${f.docType === 'final' ? 'final' : f.docType === 'proforma' ? 'pro-forma' : ''}</div></td>
+      <td style="font-size:12.5px;white-space:normal">${esc(f.message)}</td>
+      <td>${f.invoiceId ? `<button class="btn btn-sm" data-open-invoice="${f.invoiceId}">Open</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--green)">Nothing to flag: every final invoice matches its pro-forma and no price stands out.</div>'}
+    <div class="section-divider" style="margin:1.4rem 0 .6rem">Unit price vs the same product type (same supplier)</div>
+    <div class="sc-wrap"><table class="list-table"><thead><tr><th>Product</th><th>Type</th><th style="text-align:right">Unit price</th><th style="text-align:right">Median of type</th><th style="text-align:right">Products compared</th></tr></thead><tbody>${[...unitPrices].sort((a, b) => a.type.localeCompare(b.type) || a.product.localeCompare(b.product)).map(u => `<tr><td>${esc(u.product)}</td><td>${esc(u.type)}</td><td style="text-align:right;font-family:var(--mono)">$${u.price.toFixed(2)}</td><td style="text-align:right;font-family:var(--mono)">$${u.median.toFixed(2)}</td><td style="text-align:right">${u.n}</td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--text3)">Not enough data yet.</td></tr>'}</tbody></table></div>
+    ${freightPerKg.length ? `<div class="section-divider" style="margin:1.4rem 0 .6rem">Freight per kg on final invoices</div><div style="font-size:13px;color:var(--text2)">${freightPerKg.map(x => `${esc(x.invoiceNumber)}: <b>$${x.perKg.toFixed(2)}/kg</b>`).join(' · ')}</div>` : ''}`;
+  wireInvTabs(el, props);
+  el.querySelectorAll('[data-open-invoice]').forEach(r => r.addEventListener('click', () => props.onOpen(r.dataset.openInvoice)));
+}
+function wireInvTabs(el, props) {
+  el.querySelectorAll('[data-inv-tab]').forEach(b => b.addEventListener('click', () => { invTab = b.dataset.invTab; props.rerender?.(); }));
+}
+
+export function renderDtcInvoices(invoices, products, props) {
+  const { onUpload, onOpen, costs = new Map() } = props;
   const el = document.getElementById('dtcInvoicesView');
   if (!el) return;
+  if (invTab === 'verify') return renderVerify(el, invoices, products, costs, props);
   const pname = id => products.find(p => p.id === id)?.name;
   const finals = invoices.filter(i => i.doc_type === 'final');
   const sorted = [...invoices].sort((a, b) => (b.invoice_date || '').localeCompare(a.invoice_date || ''));
   const attention = invoices.filter(i => i.warnings.some(w => w.level === 'error' || w.level === 'warn')).length;
   const kpi = (l, v, sub) => `<div class="kpi-card" style="padding:.9rem 1.1rem"><div class="kpi-label">${l}</div><div class="kpi-val" style="font-size:22px">${v}</div>${sub ? `<div class="kpi-sub">${sub}</div>` : ''}</div>`;
-  el.innerHTML = `
+  el.innerHTML = `${tabsHtml(0)}
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;margin-bottom:1rem">
       <div style="font-size:12px;color:var(--text3);max-width:760px">
         Upload a supplier invoice (pro-forma or final, .xls / .xlsx / .csv). The system reads the lines whatever the layout, matches each one to a product,
@@ -50,7 +80,7 @@ export function renderDtcInvoices(invoices, products, { onUpload, onOpen }) {
           <td style="font-size:12px;color:var(--text2)">${esc(prods.slice(0, 3).join(', '))}${prods.length > 3 ? ` +${prods.length - 3}` : ''}</td>
           <td style="font-family:var(--mono)">${money(i.total_amount)}</td>
           <td style="font-size:11px;color:var(--text3)">${METHOD_LABEL[i.extraction_method] || ''}${warn ? ` · <span style="color:var(--accent)">${warn} warning${warn > 1 ? 's' : ''}</span>` : ''}</td>
-          <td>${i.file_path ? '📎' : ''}</td></tr>`;
+          <td style="white-space:nowrap">${i.file_path ? '📎' : ''}${i.source_url ? ` <a href="${esc(i.source_url)}" target="_blank" rel="noopener" title="Open the original invoice" data-stop style="text-decoration:none">↗</a>` : ''}</td></tr>`;
       }).join('') || '<tr><td colspan="8" style="color:var(--text3)">No invoices yet. Upload one to get started.</td></tr>'}</tbody>
     </table>`;
   const input = el.querySelector('#invoiceFileInput');
@@ -60,6 +90,8 @@ export function renderDtcInvoices(invoices, products, { onUpload, onOpen }) {
   ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.style.borderColor = ''; }));
   drop.addEventListener('drop', e => { if (e.dataTransfer.files.length) onUpload([...e.dataTransfer.files]); });
   el.querySelectorAll('[data-open-invoice]').forEach(r => r.addEventListener('click', () => onOpen(r.dataset.openInvoice)));
+  el.querySelectorAll('[data-stop]').forEach(a => a.addEventListener('click', e => e.stopPropagation()));
+  wireInvTabs(el, props);
 }
 
 // ─── Review modal (one uploaded file at a time) ───────────────────────────
@@ -194,7 +226,7 @@ export function renderInvoiceReview(items, ctx) {
 }
 
 // ─── Saved invoice detail ─────────────────────────────────────────────────
-export function renderInvoiceDetail(inv, products, { onDelete, onOpenFile, onAttach }) {
+export function renderInvoiceDetail(inv, products, { onDelete, onOpenFile, onAttach, onSaveSource }) {
   const overlay = document.getElementById('modalOverlay');
   const box = document.getElementById('modalBox');
   const pn = id => products.find(p => p.id === id)?.name || '';
@@ -213,6 +245,9 @@ export function renderInvoiceDetail(inv, products, { onDelete, onOpenFile, onAtt
         <div class="detail-field"><div class="lbl">Deposits listed / balance</div><div class="val">${money(inv.deposit_paid)} / ${money(inv.balance_due)}</div></div>
         <div class="detail-field"><div class="lbl">Counted as DTC / not DTC</div><div class="val">${money(sum(l => l.allocation === 'dtc'))} / ${money(sum(l => l.allocation === 'b2b'))}</div></div>
       </div>
+      <div class="detail-field" style="margin-top:10px"><div class="lbl">Link to the original document (Drive)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input id="invSrc" type="url" placeholder="https://drive.google.com/…" value="${esc(inv.source_url || '')}" style="flex:1;min-width:220px">
+          <button class="btn btn-sm" id="invSrcSave">Save link</button>${inv.source_url ? `<a class="btn btn-sm" href="${esc(inv.source_url)}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div></div>
       ${inv.warnings.length ? `<div class="section-divider" style="margin:1rem 0 .5rem">Warnings at import</div>${inv.warnings.map(w => `<div style="font-size:12px;color:${LEVEL_STYLE[w.level] || 'var(--text2)'}">${w.level === 'error' ? '✗' : '⚠'} ${esc(w.msg)}</div>`).join('')}` : ''}
       <div class="section-divider" style="margin:1rem 0 .5rem">Lines</div>
       <div style="overflow-x:auto"><table class="list-table"><thead><tr><th>Description</th><th>Type</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit</th><th style="text-align:right">Amount</th><th>Counts as</th><th>Product</th><th>Note</th></tr></thead>
@@ -227,5 +262,6 @@ export function renderInvoiceDetail(inv, products, { onDelete, onOpenFile, onAtt
   box.querySelector('#invDClose').addEventListener('click', close);
   box.querySelector('#invDelete').addEventListener('click', () => onDelete(inv));
   box.querySelector('#invFile')?.addEventListener('click', () => onOpenFile(inv));
+  box.querySelector('#invSrcSave')?.addEventListener('click', () => onSaveSource?.(inv, box.querySelector('#invSrc').value));
   box.querySelector('#invAttach')?.addEventListener('change', e => { if (e.target.files[0]) onAttach(inv, e.target.files[0]); });
 }

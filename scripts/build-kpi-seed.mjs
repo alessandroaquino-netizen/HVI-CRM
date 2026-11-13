@@ -47,13 +47,13 @@ const KPIS = [
   { key: 'klaviyo_pct',       name: 'Klaviyo revenue as % of DTC revenue',         owner: C, unit: 'pct',   target: 35,    scope: 'week',    dir: 'higher', agg: 'none',   label: 'Klaviyo revenue as % of DTC revenue', qtd: ['QTD:', 'Klaviyo revenue as % of DTC revenue'], source: 'klaviyo' },
   { key: 'ltv_cac',           name: 'LTV:CAC',                                     owner: C, unit: 'ratio', target: 2,     scope: 'week',    dir: 'higher', agg: 'none',   label: 'LTV:CAC', qtd: ['QTD:', 'LTV:CAC'] },
 
-  { key: 'ltv_90',            name: '90-day LTV',                                  owner: 'Aira Viray', unit: 'usd',   target: 62,   scope: 'week', dir: 'higher', agg: 'none', label: '1) 90-Day LTV', source: 'shopify' },
-  { key: 'repeat_q2',         name: 'Repeat purchase: Q2 2026 customers, 1st→2nd',  owner: 'Aira Viray', group: 'Repeat purchase rate', unit: 'pct', target: 42, scope: 'week', dir: 'higher', agg: 'none', label: 'a. Q2 2026 customers', source: 'shopify' },
-  { key: 'repeat_q3',         name: 'Repeat purchase: Q3 2026 customers, 1st→2nd',  owner: 'Aira Viray', group: 'Repeat purchase rate', unit: 'pct', target: 40, scope: 'week', dir: 'higher', agg: 'none', label: 'b. Q3 2026 customers', source: 'shopify' },
-  { key: 'fanatic_pct',       name: 'Fanatic development: 12-month customers with 3+ purchases', owner: 'Aira Viray', unit: 'pct', target: 15, scope: 'week', dir: 'higher', agg: 'none', label: 'Fanatic development', source: 'shopify' },
+  { key: 'ltv_90',            name: '90-day LTV',                                  owner: 'Aira Viray', unit: 'usd',   target: 62,   scope: 'week', dir: 'higher', agg: 'latest', label: '1) 90-Day LTV', source: 'shopify' },
+  { key: 'repeat_q2',         name: 'Repeat purchase: Q2 2026 customers, 1st→2nd',  owner: 'Aira Viray', group: 'Repeat purchase rate', unit: 'pct', target: 42, scope: 'week', dir: 'higher', agg: 'latest', label: 'a. Q2 2026 customers', source: 'shopify' },
+  { key: 'repeat_q3',         name: 'Repeat purchase: Q3 2026 customers, 1st→2nd',  owner: 'Aira Viray', group: 'Repeat purchase rate', unit: 'pct', target: 40, scope: 'week', dir: 'higher', agg: 'latest', label: 'b. Q3 2026 customers', source: 'shopify' },
+  { key: 'fanatic_pct',       name: 'Fanatic development: 12-month customers with 3+ purchases', owner: 'Aira Viray', unit: 'pct', target: 15, scope: 'week', dir: 'higher', agg: 'latest', label: 'Fanatic development', source: 'shopify' },
   { key: 'loyalty_members',   name: 'Loyalty program: active members',             owner: 'Aira Viray', group: 'Loyalty program', unit: 'count', target: 3500, scope: 'point', dir: 'higher', agg: 'latest', label: 'a. Total active members', source: 'klaviyo' },
-  { key: 'loyalty_active',    name: 'Loyalty program: % of members purchasing in last 90 days', owner: 'Aira Viray', group: 'Loyalty program', unit: 'pct', target: 32, scope: 'week', dir: 'higher', agg: 'none', label: 'b. % of loyalty members', source: 'klaviyo' },
-  { key: 'loyalty_buyers',    name: 'Loyalty members who purchased (90 days)',      owner: 'Aira Viray', group: 'Loyalty program', unit: 'count', target: null, scope: 'week', dir: 'higher', agg: 'none', label: 'Loyalty Members Purchasers', source: 'klaviyo' },
+  { key: 'loyalty_active',    name: 'Loyalty program: % of members purchasing in last 90 days', owner: 'Aira Viray', group: 'Loyalty program', unit: 'pct', target: 32, scope: 'week', dir: 'higher', agg: 'latest', label: 'b. % of loyalty members', source: 'klaviyo' },
+  { key: 'loyalty_buyers',    name: 'Loyalty members who purchased (90 days)',      owner: 'Aira Viray', group: 'Loyalty program', unit: 'count', target: null, scope: 'week', dir: 'higher', agg: 'latest', label: 'Loyalty Members Purchasers', source: 'klaviyo' },
 
   { key: 'conversion',        name: 'Sitewide conversion rate',                    owner: 'Kuerstine Geguira', unit: 'pct', target: 4.5, scope: 'week', dir: 'higher', agg: 'none', label: 'Weekly', parent: 'Sitewide Conversion Rate', qtd: ['QTD:', 'Sitewide Conversion Rate'], source: 'shopify' },
   { key: 'organic_sessions',  name: 'Organic social sessions',                     owner: 'Kuerstine Geguira', unit: 'count', target: 8000, scope: 'quarter', dir: 'higher', agg: 'sum', label: 'Weekly', parent: 'Organic Social Sessions', qtd: ['QTD:', 'Organic Social Sessions'], source: 'ga4' },
@@ -67,7 +67,7 @@ const KPIS = [
   ...[['HVI ITEMS', 'HVI items'], ['STRICTLY WILD', 'Strictly Wild'], ['BENCHMARK FR', 'Benchmark FR'], ['COEWEAR', 'Coewear'], ['CAMEL CITY MILL', 'Camel City Mill']].map(([l, n]) =>
     ({ key: 'closed_' + n.toLowerCase().replace(/\W+/g, '_'), name: 'Closed orders: ' + n, owner: 'Kuerstine Geguira', group: 'Closed orders by vendor', unit: 'count', target: null, scope: 'week', dir: 'higher', agg: 'sum', label: l, parent: 'Closed Orders' })),
 
-  { key: 'blended_roas',      name: 'Blended ROAS',                                owner: 'Ryanne Amamagid', group: 'ROAS', unit: 'ratio', target: null, scope: 'week', dir: 'higher', agg: 'none', label: 'https://docs.google.com/spreadsheets/d/1BqyQ', source: 'meta' },
+  { key: 'blended_roas',      name: 'Blended ROAS',                                owner: 'Ryanne Amamagid', group: 'ROAS', unit: 'ratio', target: null, scope: 'week', dir: 'higher', agg: 'avg', label: 'https://docs.google.com/spreadsheets/d/1BqyQ', source: 'meta' },
   { key: 'meta_roas_7',       name: 'Meta ROAS (last 7 days)',                     owner: 'Ryanne Amamagid', group: 'ROAS', unit: 'ratio', target: 2.5, scope: 'week', dir: 'higher', agg: 'none', label: 'Last 7 Days', parent: 'a. Meta', qtd: ['a. Meta', 'Blended ROAS'], source: 'meta' },
   { key: 'meta_roas_14',      name: 'Meta ROAS (last 14 days)',                    owner: 'Ryanne Amamagid', group: 'ROAS', unit: 'ratio', target: 2.5, scope: 'week', dir: 'higher', agg: 'none', label: 'Last 14 Days', parent: 'a. Meta', source: 'meta' },
   { key: 'google_roas_7',     name: 'Google ROAS (last 7 days)',                   owner: 'Ryanne Amamagid', group: 'ROAS', unit: 'ratio', target: 8.5, scope: 'week', dir: 'higher', agg: 'none', label: 'Last 7 Days', parent: 'b. Google', qtd: ['b. Google', 'Blended ROAS'], source: 'google' },
@@ -75,8 +75,8 @@ const KPIS = [
   { key: 'ai_sessions',       name: 'AI-attributed sessions',                      owner: 'Ryanne Amamagid', group: 'AI search (AEO)', unit: 'count', target: 200, scope: 'quarter', dir: 'higher', agg: 'sum', label: 'https://admin.shopify.com', source: 'shopify', combined: true },
   { key: 'ai_revenue',        name: 'AI-attributed revenue',                       owner: 'Ryanne Amamagid', group: 'AI search (AEO)', unit: 'usd', target: 2000, scope: 'quarter', dir: 'higher', agg: 'sum', label: 'AI Attributed Revenue', source: 'shopify', note: 'Notion note: $428.47 so far this quarter. No weekly breakdown was provided.' },
   { key: 'creatives',         name: 'Ad creatives produced',                       owner: 'Ryanne Amamagid', group: 'Creative output & performance', unit: 'count', target: 8, scope: 'week', dir: 'higher', agg: 'sum', label: 'a. Ad creatives produced', parent: 'Creative Output' },
-  { key: 'ctr',               name: 'Ad CTR',                                      owner: 'Ryanne Amamagid', group: 'Creative output & performance', unit: 'pct', target: 1.5, scope: 'week', dir: 'higher', agg: 'none', label: 'b. CTR', parent: 'Creative Output', source: 'meta' },
-  { key: 'click_to_purchase', name: 'Click-to-purchase rate',                      owner: 'Ryanne Amamagid', group: 'Creative output & performance', unit: 'pct', target: 5.5, scope: 'week', dir: 'higher', agg: 'none', label: 'c. Click to purchase', parent: 'Creative Output', source: 'meta' },
+  { key: 'ctr',               name: 'Ad CTR',                                      owner: 'Ryanne Amamagid', group: 'Creative output & performance', unit: 'pct', target: 1.5, scope: 'week', dir: 'higher', agg: 'avg', label: 'b. CTR', parent: 'Creative Output', source: 'meta' },
+  { key: 'click_to_purchase', name: 'Click-to-purchase rate',                      owner: 'Ryanne Amamagid', group: 'Creative output & performance', unit: 'pct', target: 5.5, scope: 'week', dir: 'higher', agg: 'avg', label: 'c. Click to purchase', parent: 'Creative Output', source: 'meta' },
 ];
 
 const ROCK_OWNER = { Aira: 'Aira Viray', kuerstine: 'Kuerstine Geguira', Ryanne: 'Ryanne Amamagid' };
@@ -103,6 +103,9 @@ out.push('INSERT INTO kpis (seed_key, quarter, name, owner_name, group_name, uni
   defRows.join(',\n'), 'ON CONFLICT (seed_key) DO NOTHING;', '');
 
 // ── weekly values ──
+// Earlier versions seeded these as 'none'; move the untouched ones to the right quarter-to-date rule (idempotent, never touches an edited KPI).
+const moved = KPIS.filter(k => k.agg !== 'none' && !k.qtd);
+out.push('UPDATE kpis SET aggregation = v.agg FROM (VALUES', moved.map(k => `  (${sq(k.key + '-' + Q)}, ${sq(k.agg)})`).join(',\n'), ") AS v(seed_key, agg) WHERE kpis.seed_key = v.seed_key AND kpis.aggregation = 'none';", '');
 const vals = []; const stats = { values: 0, skipped: [] };
 for (const k of KPIS) {
   const row = findRow(k.label, k.parent);

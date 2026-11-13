@@ -254,24 +254,41 @@ function openEventModal(ev) {
 }
 
 // ─── T-minus planner: from a target drop date back to when each stage has to start ─────────────────────
+const PLAN_PHASE = { design_first: 'idea', design_final: 'design', sampling: 'sampling', production: 'production', shipping: 'shipping' };
 function openPlanner() {
   const box = document.getElementById('modalBox'); const overlay = document.getElementById('modalOverlay'); box.removeAttribute('data-drop-modal');
   box.innerHTML = `<div class="modal-header"><h3>T-minus planner</h3><button class="btn btn-sm btn-ghost" id="plX">✕</button></div>
-    <div class="modal-body"><div class="mo-note" style="margin-top:0">Pick what you want to launch and when. The planner counts back from the drop date using HVI's lead-time table and shows when each stage has to start.</div>
-      <div class="form-grid"><div class="form-row"><label>Product type</label><select id="plType">${PRODUCT_TYPES.map(t => `<option value="${t.id}">${esc(t.label)}</option>`).join('')}</select></div>
+    <div class="modal-body"><div class="mo-note" style="margin-top:0">Pick what you want to launch and when. The planner counts back from the drop date using HVI's lead-time table and shows when each stage has to start. Tick the stages that are already done, then add the product to the DTC pipeline.</div>
+      <div class="form-grid"><div class="form-row"><label>Product name (to add it to the pipeline)</label><input id="plName" placeholder="e.g. Fall flannel 2027"></div>
+        <div class="form-row"><label>Product type</label><select id="plType">${PRODUCT_TYPES.map(t => `<option value="${t.id}">${esc(t.label)}</option>`).join('')}</select></div>
         <div class="form-row"><label>Category</label><select id="plCat">${PRODUCT_CATEGORIES.map(c => `<option value="${c.id}"${c.id === 'new-line' ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></div>
         <div class="form-row"><label>Target drop date</label><input type="date" id="plDrop" value="${addDays(todayStr(), 120)}"></div></div>
       <div id="plOut"></div></div>
-    <div class="modal-footer"><button class="btn" id="plClose">Close</button></div>`;
+    <div class="modal-footer"><span id="plMsg" class="sc-ro" style="margin-right:auto"></span><button class="btn" id="plClose">Close</button><button class="btn btn-accent" id="plAdd">Add to DTC pipeline</button></div>`;
   overlay.classList.remove('hidden');
   const q = s => box.querySelector(s); const close = () => overlay.classList.add('hidden');
   q('#plX').addEventListener('click', close); q('#plClose').addEventListener('click', close);
+  const done = new Set(); let plan = null;
   const calc = () => {
-    const r = planBackward({ product_type: q('#plType').value, category: q('#plCat').value, drop_date: q('#plDrop').value }); const out = q('#plOut');
-    if (!r) { out.innerHTML = '<div class="mo-meta">No lead time is set for this combination.</div>'; return; }
-    const late = r.startBy < todayStr();
-    out.innerHTML = `<div class="notes-display" style="border-left:3px solid ${late ? 'var(--red)' : 'var(--green)'}"><b>Start ${esc(r.firstStage.toLowerCase())} by ${formatDate(r.startBy)}</b> (${r.totalWeeks} weeks before the drop)${late ? '<br><span style="color:var(--red)">That date has already passed: the drop date or the scope needs to change.</span>' : ''}</div>
-      ${r.phases ? r.phases.map(p => `<div class="mo-meta" style="margin-top:6px">• <b>${p.label}</b>: ${formatDate(p.start)} to ${formatDate(p.end)} <span class="mo-meta">(${p.weeks} wk)</span></div>`).join('') : '<div class="mo-meta" style="margin-top:6px">There is no stage breakdown for this product type, only the total lead time.</div>'}`;
+    plan = planBackward({ product_type: q('#plType').value, category: q('#plCat').value, drop_date: q('#plDrop').value }); const out = q('#plOut');
+    if (!plan) { out.innerHTML = '<div class="mo-meta">No lead time is set for this combination.</div>'; return; }
+    const open = plan.phases ? plan.phases.filter(p => !done.has(p.id)) : [];
+    const startBy = open.length ? open[0].start : plan.startBy; const late = startBy < todayStr();
+    out.innerHTML = `<div class="notes-display" style="border-left:3px solid ${late ? 'var(--red)' : 'var(--green)'}"><b>${open.length ? `Start ${esc(open[0].label.toLowerCase())} by ${formatDate(startBy)}` : plan.phases ? 'Every stage is marked done' : `Start by ${formatDate(startBy)}`}</b> (${plan.totalWeeks} weeks before the drop)${late && open.length ? '<br><span style="color:var(--red)">That date has already passed: the drop date or the lead time has to move.</span>' : ''}</div>
+      ${plan.phases ? plan.phases.map(p => `<label class="mo-meta" style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" data-done="${p.id}" ${done.has(p.id) ? 'checked' : ''}> <span style="${done.has(p.id) ? 'text-decoration:line-through;opacity:.6' : ''}"><b>${p.label}</b>: ${formatDate(p.start)} to ${formatDate(p.end)} (${p.weeks} wk)</span></label>`).join('') : '<div class="mo-meta" style="margin-top:6px">There is no stage breakdown for this product type, only the total lead time.</div>'}`;
+    out.querySelectorAll('[data-done]').forEach(c => c.addEventListener('change', () => { c.checked ? done.add(c.dataset.done) : done.delete(c.dataset.done); calc(); }));
   };
-  ['#plType', '#plCat', '#plDrop'].forEach(id => q(id).addEventListener('input', calc)); calc();
+  ['#plType', '#plCat', '#plDrop'].forEach(id => q(id).addEventListener('input', () => { done.clear(); calc(); })); calc();
+  q('#plAdd').addEventListener('click', async () => {
+    const name = q('#plName').value.trim(); if (!name) return alert('Type the product name first.');
+    if (!plan) return alert('There is no plan for this combination.');
+    if (!props.onAddToPipeline) return;
+    const open = plan.phases ? plan.phases.filter(p => !done.has(p.id)) : [];
+    const first = open[0] ? PLAN_PHASE[open[0].id] : (plan.phases ? 'warehouse' : 'idea');
+    try {
+      await props.onAddToPipeline({ product: { name, product_type: q('#plType').value, category: q('#plCat').value, drop_date: q('#plDrop').value, phase: first },
+        phases: (plan.phases || []).map(p => ({ phase_key: PLAN_PHASE[p.id], planned_start: p.start, planned_end: p.end })) });
+      q('#plMsg').textContent = `✓ ${name} added to the pipeline (${first}).`; q('#plName').value = '';
+    } catch (e) { alert('Could not add the product: ' + (e.message || e)); }
+  });
 }

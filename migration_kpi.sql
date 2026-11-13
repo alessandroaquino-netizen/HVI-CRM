@@ -73,6 +73,17 @@ BEGIN
   END LOOP;
 END $$;
 
+-- ─── 4b. Owners are real users, and founder-level KPIs are visible to administrators only (Nov 11 meeting) ──
+ALTER TABLE kpis  ADD COLUMN IF NOT EXISTS owner_email text;                    -- matches app_users.email; owner_name stays as the display name
+ALTER TABLE rocks ADD COLUMN IF NOT EXISTS owner_email text;
+ALTER TABLE kpis  ADD COLUMN IF NOT EXISTS visibility  text NOT NULL DEFAULT 'team' CHECK (visibility IN ('team','founders'));
+
+DROP POLICY IF EXISTS "kpis read" ON kpis;
+CREATE POLICY "kpis read" ON kpis FOR SELECT TO authenticated USING (is_hvi_user() AND (visibility = 'team' OR is_hvi_admin()));
+DROP POLICY IF EXISTS "kpi_values read" ON kpi_values;
+CREATE POLICY "kpi_values read" ON kpi_values FOR SELECT TO authenticated
+  USING (is_hvi_user() AND (is_hvi_admin() OR EXISTS (SELECT 1 FROM kpis k WHERE k.id = kpi_values.kpi_id AND k.visibility = 'team')));
+
 -- ─── 5. Realtime (so the scorecard updates when an admin saves) ────────────
 DO $$
 DECLARE t text;

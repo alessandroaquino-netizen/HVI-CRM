@@ -53,30 +53,35 @@ export const STATUS_LABEL = { on_track: 'On track', at_risk: 'At risk', off_trac
 /** Week status of one KPI value. */
 export const weekStatus = (k, value) => statusOf(ratio(k, value, weeklyTarget(k)));
 
-/** Quarter-to-date number for a week: the figure typed from the source tool, else the running sum of summed KPIs. */
+/** Quarter-to-date number as of a week. Summed KPIs add up the weeks that were entered (nobody types the total), averaged KPIs
+ *  average them, "latest" KPIs (levels like members or LTV) use the newest value. Only the remaining kind uses the figure typed
+ *  from the source tool. */
 export function qtdValue(k, valuesByWeek, week) {
+  const upTo = [...valuesByWeek].filter(([w, row]) => w <= week && row.value != null).sort((a, b) => a[0].localeCompare(b[0]));
+  if (k.aggregation === 'sum') return upTo.length ? upTo.reduce((a, [, r]) => a + Number(r.value), 0) : null;
+  if (k.aggregation === 'avg') return upTo.length ? upTo.reduce((a, [, r]) => a + Number(r.value), 0) / upTo.length : null;
+  if (k.aggregation === 'latest') return upTo.length ? Number(upTo[upTo.length - 1][1].value) : null;
   const v = valuesByWeek.get(week);
-  if (v && v.qtd_value != null) return Number(v.qtd_value);
-  if (k.aggregation !== 'sum') return null;
-  let sum = 0, any = false;
-  for (const [w, row] of valuesByWeek) if (w <= week && row.value != null) { sum += Number(row.value); any = true; }
-  return any ? sum : null;
+  return v && v.qtd_value != null ? Number(v.qtd_value) : null;
 }
 
-/** Everything the scorecard shows for one KPI. */
+/** Everything the scorecard shows for one KPI.
+ *  `status` is the overall status: quarter-to-date against the quarter-to-date target (so one low week does not turn a
+ *  good quarter red). KPIs that are a level, or have no quarter-to-date figure, use their latest week. `lastStatus` is the latest week alone. */
 export function evaluateKpi(k, values, weeks) {
   const byWeek = new Map(values.map(v => [v.period_start, v]));
   let lastWeek = null;
   for (const w of weeks) if (byWeek.get(w)?.value != null) lastWeek = w;
   const last = lastWeek ? Number(byWeek.get(lastWeek).value) : null;
-  const status = lastWeek ? weekStatus(k, last) : 'no_data';
+  const lastStatus = lastWeek ? weekStatus(k, last) : 'no_data';
   let qtd = null, qtdStatus = 'no_data';
   if (lastWeek) {
     qtd = qtdValue(k, byWeek, lastWeek);
     const elapsed = weeks.indexOf(lastWeek) + 1;
     if (qtd != null) qtdStatus = statusOf(ratio(k, qtd, qtdTarget(k, elapsed)));
   }
-  return { byWeek, lastWeek, last, status, qtd, qtdStatus, weeklyTarget: weeklyTarget(k) };
+  const usesQtd = qtd != null && k.aggregation !== 'latest';
+  return { byWeek, lastWeek, last, lastStatus, status: usesQtd ? qtdStatus : lastStatus, basis: usesQtd ? 'qtd' : 'latest', qtd, qtdStatus, weeklyTarget: weeklyTarget(k) };
 }
 
 export function summarize(evals) {

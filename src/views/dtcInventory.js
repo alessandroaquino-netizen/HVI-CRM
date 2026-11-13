@@ -1,6 +1,7 @@
 // Inventory management: ordered → shipped → received → QC → sellable → shelved / reserve, per product and size.
 import { saveInventoryRow, addInventoryLabels, deleteInventoryRow, startCounting, fetchInventoryEvents } from '../controllers/inventory.js';
 import { sizesFor } from '../dtc_constants.js';
+import { pickSizes } from './sizePicker.js';
 import { rowGaps, productTotals, costPerUnit } from '../inventory/reconcile.js';
 import { formatDate } from '../utils.js';
 import { stack } from '../viz.js';
@@ -69,7 +70,8 @@ export function renderDtcInventory() {
     await guard(() => startCounting(p, variants.filter(v => v.dtc_product_id === p.id), byProduct.get(p.id) || [])); open.add(p.id);
   }));
   el.querySelectorAll('[data-add-row]').forEach(b => b.addEventListener('click', async () => {
-    const label = prompt('Sizes or variants to add, separated by commas (for example 4XL, 5XL or Black, Navy):'); if (label) await guard(() => addInventoryLabels(b.dataset.addRow, label, byProduct.get(b.dataset.addRow) || []));
+    const pid = b.dataset.addRow; const prod = products.find(x => x.id === pid); const have = byProduct.get(pid) || [];
+    pickSizes({ title: `Add sizes · ${prod?.name || ''}`, have: have.map(r => r.option_label), suggested: sizesFor(prod?.product_type), onAdd: labels => guard(() => addInventoryLabels(pid, labels.join(','), have)) });
   }));
   el.querySelectorAll('[data-del-row]').forEach(b => b.addEventListener('click', async () => { if (confirm('Delete this row and its counts?')) await guard(() => deleteInventoryRow(b.dataset.delRow)); }));
   el.querySelectorAll('[data-history]').forEach(b => b.addEventListener('click', () => showHistory(b.dataset.history, products.find(p => p.id === b.dataset.history)?.name)));

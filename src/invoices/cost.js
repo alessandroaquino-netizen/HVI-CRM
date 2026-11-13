@@ -1,4 +1,6 @@
-// Cost per product from saved invoice lines. A final invoice replaces the pro-forma for the same product.
+// Landed cost per product from saved invoice lines. A final invoice replaces the pro-forma for the same product.
+// Method (Nov 2026): cost per unit = (goods + photography + fees + share of freight) / units on the final invoice.
+// The freight share was fixed when the invoice was saved: gross weight on the packing list (see allocateByWeight in src/invoices/plan.js).
 const round2 = n => Math.round(n * 100) / 100;
 
 export function productCosts(invoices) {
@@ -12,18 +14,21 @@ export function productCosts(invoices) {
   }
   const out = new Map();
   for (const [pid, { invoice }] of best) {
-    const c = { goods: 0, photography: 0, shipping: 0, fees: 0, total: 0, units: 0, packed: 0, invoice };
+    const c = { goods: 0, photography: 0, shipping: 0, fees: 0, total: 0, units: 0, packed: 0, invoice, shippingBasis: null, grossKg: 0,
+      invoiceGrossKg: invoice.lines.filter(x => x.line_type === 'product' && x.dtc_product_id).reduce((a, x) => a + Number(x.gross_weight_kg || 0), 0) };
     for (const l of invoice.lines.filter(x => x.dtc_product_id === pid && x.allocation === 'dtc')) {
       const a = Number(l.amount);
-      if (l.line_type === 'product') { c.goods += a; c.units += Number(l.quantity || 0); c.packed += Number(l.packed_quantity ?? l.quantity ?? 0); }
+      if (l.line_type === 'product') { c.goods += a; c.units += Number(l.quantity || 0); c.packed += Number(l.packed_quantity ?? l.quantity ?? 0); c.grossKg += Number(l.gross_weight_kg || 0); }
       else if (l.line_type === 'photography') c.photography += a;
-      else if (l.line_type === 'shipping') c.shipping += a;
+      else if (l.line_type === 'shipping') { c.shipping += a; c.shippingBasis = l.alloc_basis || c.shippingBasis; }
       else c.fees += a;
       c.total += a;
     }
     const units = c.packed || c.units;
     Object.assign(c, { goods: round2(c.goods), photography: round2(c.photography), shipping: round2(c.shipping), fees: round2(c.fees), total: round2(c.total),
-      perUnit: units ? round2(c.total / units) : null, goodsPerUnit: units ? round2(c.goods / units) : null, basisUnits: units });
+      sourceUrl: invoice.source_url || null,
+      perUnit: units ? round2(c.total / units) : null, goodsPerUnit: units ? round2(c.goods / units) : null,
+      shippingPerUnit: units ? round2(c.shipping / units) : null, photographyPerUnit: units ? round2(c.photography / units) : null, basisUnits: units });
     out.set(pid, c);
   }
   return out;

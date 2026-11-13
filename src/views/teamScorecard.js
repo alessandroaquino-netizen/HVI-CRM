@@ -1,12 +1,27 @@
 // Team Scorecard (weekly KPI grid) and Rocks (quarterly priorities). Everyone reads; only administrators edit.
 import { quarterWeeks, currentQuarter, nextQuarter, evaluateKpi, summarize, weekStatus, weeklyTarget, qtdTarget, STATUS_LABEL, fmtValue, fmtTarget, mondayOf } from '../kpi/status.js';
-import { saveKpiValue, saveKpi, deleteKpi, saveRock, setRockStatus, deleteRock, startNextQuarter } from '../controllers/kpi.js';
+import { saveKpiValue, saveKpi, deleteKpi, saveRock, setRockStatus, deleteRock, startNextQuarter, mapOwners } from '../controllers/kpi.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const short = d => `${MON[+d.slice(5, 7) - 1]} ${+d.slice(8, 10)}`;
 const ROCK_STATUS = { not_started: 'Not started', in_progress: 'In progress', at_risk: 'At risk', done: 'Done' };
 const CSS_STATUS = { on_track: 'on', at_risk: 'risk', off_track: 'off', no_data: 'none' };
+
+// Owner picker: a person from the system's user list (their email is what links the KPI to "My KPIs"), or any other name.
+const userLabel = u => (u.full_name || u.email) + (u.full_name ? ` (${u.email})` : '');
+function ownerPicker(id, name, email) {
+  const users = (ctx.users?.() || []).filter(u => u.status !== 'disabled');
+  const hit = users.find(u => email && u.email === String(email).toLowerCase()) || users.find(u => name && u.full_name && u.full_name.toLowerCase() === String(name).toLowerCase());
+  return `<select id="${id}Sel"><option value="">— Other (type a name) —</option>${users.map(u => `<option value="${esc(u.email)}"${hit?.email === u.email ? ' selected' : ''}>${esc(userLabel(u))}</option>`).join('')}</select>
+    <input id="${id}" placeholder="Name" value="${esc(name || '')}" style="margin-top:6px${hit ? ';display:none' : ''}">`;
+}
+function readOwner(q, id) {
+  const sel = q('#' + id + 'Sel'); const users = ctx.users?.() || [];
+  if (sel && sel.value) { const u = users.find(x => x.email === sel.value); return { owner_name: u?.full_name || u?.email || sel.value, owner_email: sel.value }; }
+  return { owner_name: q('#' + id).value.trim(), owner_email: null };
+}
+function wireOwner(q, id) { q('#' + id + 'Sel')?.addEventListener('change', e => { q('#' + id).style.display = e.target.value ? 'none' : ''; }); }
 
 let ctx = null;
 const st = { tab: 'scorecard', quarter: null, owner: 'all', status: 'all', q: '' };
@@ -32,7 +47,7 @@ export function renderTeamScorecard() {
       <div class="mo-tabs" role="tablist"><button class="mo-tab${st.tab === 'scorecard' ? ' active' : ''}" data-sc-tab="scorecard">Scorecard</button><button class="mo-tab${st.tab === 'rocks' ? ' active' : ''}" data-sc-tab="rocks">Rocks</button></div>
       <select id="scQuarter" aria-label="Quarter">${quarterOpts}</select>
       <div class="sc-head-actions">
-        ${admin ? `<button class="btn btn-accent" id="scAdd">${st.tab === 'rocks' ? 'Add rock' : 'Add KPI'}</button><button class="btn" id="scNextQ">Start ${nextQuarter(st.quarter).replace('-', ' ')}</button>` : '<span class="sc-ro">View only — administrators update the numbers</span>'}
+        ${admin ? `<button class="btn btn-accent" id="scAdd">${st.tab === 'rocks' ? 'Add rock' : 'Add KPI'}</button><button class="btn" id="scMap">Map owners</button><button class="btn" id="scNextQ">Start ${nextQuarter(st.quarter).replace('-', ' ')}</button>` : '<span class="sc-ro">View only — administrators update the numbers</span>'}
       </div>
     </div>
     ${st.tab === 'rocks' ? rocksHtml(m, admin) : scorecardHtml(m, admin)}`;
@@ -43,7 +58,9 @@ export function renderTeamScorecard() {
 function scorecardHtml(m, admin) {
   const owners = [...new Set(m.qk.map(k => k.owner_name))];
   const q = st.q.toLowerCase();
-  const list = m.qk.filter(k => (st.owner === 'all' || k.owner_name === st.owner) && (st.status === 'all' || m.evals.get(k.id).status === st.status) && (!q || k.name.toLowerCase().includes(q) || (k.group_name || '').toLowerCase().includes(q)));
+  const me = (ctx.email?.() || '').toLowerCase();
+  const mine = k => !!me && (k.owner_email || '').toLowerCase() === me;
+  const list = m.qk.filter(k => (st.owner === 'all' || (st.owner === '__me' ? mine(k) : k.owner_name === st.owner)) && (st.status === 'all' || m.evals.get(k.id).status === st.status) && (!q || k.name.toLowerCase().includes(q) || (k.group_name || '').toLowerCase().includes(q)));
   const tracked = m.qk.filter(k => k.target_value != null);
   const sum = summarize(tracked.map(k => m.evals.get(k.id)));
   const card = (label, n, cls, key) => `<button class="kpi-card sc-card ${cls}${st.status === key ? ' sel' : ''}" data-sc-status="${key}"><div class="kpi-label">${label}</div><div class="kpi-val">${n}</div><div class="kpi-sub">of ${tracked.length} KPIs with a target</div></button>`;
@@ -60,19 +77,19 @@ function scorecardHtml(m, admin) {
       const future = w > today && !has;
       return `<td class="sc-cell ${cls}${future ? ' future' : ''}${admin ? ' edit' : ''}" data-cell="${k.id}" data-week="${w}" ${v?.note ? `title="${esc(v.note)}"` : ''}>${has ? esc(fmtValue(k.unit, v.value)) : '·'}${v?.note ? '<i class="sc-note" aria-hidden="true"></i>' : ''}</td>`;
     }).join('');
-    const latest = e.lastWeek ? `<b>${esc(fmtValue(k.unit, e.last))}</b><small>${short(e.lastWeek)}</small>` : '—';
+    const latest = e.lastWeek ? `<b class="sc-last ${k.target_value != null ? CSS_STATUS[e.lastStatus] : ''}">${esc(fmtValue(k.unit, e.last))}</b><small>${short(e.lastWeek)}</small>` : '—';
     const qtd = e.qtd != null ? `<span class="sc-qtd ${CSS_STATUS[k.target_value != null ? e.qtdStatus : 'no_data']}">${esc(fmtValue(k.unit, e.qtd))}</span>` : '—';
     rows += `<tr><td class="sc-name"><button class="sc-link" data-kpi-open="${k.id}">${esc(k.name)}</button></td>
       <td class="sc-target">${esc(fmtTarget(k))}</td>
-      <td><span class="sc-pill ${CSS_STATUS[e.status]}">${k.target_value == null ? 'Tracked' : STATUS_LABEL[e.status]}</span></td>
+      <td><span class="sc-pill ${CSS_STATUS[e.status]}">${k.target_value == null ? 'Tracked' : STATUS_LABEL[e.status]}</span>${k.target_value != null && e.lastWeek ? `<div class="sc-basis">${e.basis === 'qtd' ? 'quarter to date' : 'latest week'}${e.basis === 'qtd' && e.lastStatus !== e.status ? ` · last week ${STATUS_LABEL[e.lastStatus].toLowerCase()}` : ''}</div>` : ''}${k.visibility === 'founders' ? '<div class="sc-basis">🔒 founders only</div>' : ''}</td>
       <td class="sc-latest">${latest}</td><td class="sc-qtdcell">${qtd}</td>${cells}</tr>`;
   });
   return `
     <div class="proj-summary sc-summary">${card('On track', sum.on_track, 'on', 'on_track')}${card('At risk', sum.at_risk, 'risk', 'at_risk')}${card('Off track', sum.off_track, 'off', 'off_track')}${card('No data yet', sum.no_data, 'none', 'no_data')}</div>
     <div class="mo-filter"><input type="search" id="scQ" placeholder="Search KPI" value="${esc(st.q)}">
-      <select id="scOwner"><option value="all">All owners</option>${owners.map(o => `<option${o === st.owner ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>
+      <select id="scOwner"><option value="all">All owners</option>${m.qk.some(mine) ? `<option value="__me"${st.owner === '__me' ? ' selected' : ''}>My KPIs</option>` : ''}${owners.map(o => `<option${o === st.owner ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>
       <select id="scStatus"><option value="all">All statuses</option>${Object.entries(STATUS_LABEL).map(([k, l]) => `<option value="${k}"${k === st.status ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
-    <div class="mo-note">Status compares the latest reported week with its target: <b>On track</b> ≥ 100%, <b>At risk</b> 90–99%, <b>Off track</b> below 90%. For “lower is better” KPIs (like ad spend) the comparison is reversed. Quarter-to-date uses the figure from the source tool when it was entered, otherwise the running total of summed KPIs. Column dates are the Mondays the numbers were reported.${admin ? ' Click any week to enter or correct a number.' : ''}</div>
+    <div class="mo-note"><b>Weeks</b> are colored against the weekly target. The <b>Status</b> is quarter to date against the pace needed so far, so one low week does not turn a good quarter red (KPIs that are a level, like members or LTV, use the latest week). <b>On track</b> ≥ 100%, <b>At risk</b> 90–99%, <b>Off track</b> below 90%; for “lower is better” KPIs (like ad spend) the comparison is reversed. Quarter to date is added up from the weeks for summed KPIs, averaged for average KPIs, and typed from the source tool for the rest. Column dates are the Mondays the numbers were reported.${admin ? ' Click any week to enter or correct a number.' : ''}</div>
     ${list.length ? `<div class="sc-wrap"><table class="sc-table"><thead><tr><th class="sc-name">KPI</th><th>Target</th><th>Status</th><th>Latest</th><th>QTD</th>${m.weeks.map(w => `<th class="sc-wk">${short(w)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>` : '<div style="color:var(--text3)">No KPIs match these filters.</div>'}`;
 }
 
@@ -102,6 +119,7 @@ function wire(el, m, admin) {
   if (!admin) return;
   el.querySelectorAll('[data-cell]').forEach(td => td.addEventListener('click', () => openCellModal(td.dataset.cell, td.dataset.week)));
   el.querySelector('#scAdd')?.addEventListener('click', () => (st.tab === 'rocks' ? openRockModal(null) : openKpiModal(null)));
+  el.querySelector('#scMap')?.addEventListener('click', openMapOwners);
   el.querySelector('#scNextQ')?.addEventListener('click', async () => {
     const target = nextQuarter(st.quarter);
     if (!confirm(`Start ${target.replace('-', ' ')}? This copies this quarter's KPIs and Rocks (no numbers, Rocks reset to "Not started").`)) return;
@@ -173,12 +191,11 @@ function openKpiDetail(id) {
 
 function openKpiModal(id) {
   const m = model(); const k = id ? m.kpis.find(x => x.id === id) : { quarter: st.quarter, name: '', owner_name: m.qk[0]?.owner_name || '', group_name: '', unit: 'count', target_value: '', target_scope: 'week', direction: 'higher', aggregation: 'none', source: 'manual', note: '' };
-  const owners = [...new Set(m.kpis.map(x => x.owner_name))];
   const sel = (idn, opts, cur) => `<select id="${idn}">${opts.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
   const { close, q } = openBox(`<div class="modal-header"><h3>${id ? 'Edit KPI' : 'Add KPI'} · ${esc(k.quarter.replace('-', ' '))}</h3><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
     <div class="modal-body">
       <div class="form-row"><label>Name</label><input id="kName" value="${esc(k.name)}" placeholder="e.g. Weekly DTC revenue"></div>
-      <div class="form-grid"><div class="form-row"><label>Owner</label><input id="kOwner" list="kOwners" value="${esc(k.owner_name)}"><datalist id="kOwners">${owners.map(o => `<option value="${esc(o)}">`).join('')}</datalist></div>
+      <div class="form-grid"><div class="form-row"><label>Owner</label>${ownerPicker('kOwner', k.owner_name, k.owner_email)}</div>
         <div class="form-row"><label>Group (optional)</label><input id="kGroup" value="${esc(k.group_name || '')}"></div>
         <div class="form-row"><label>Unit</label>${sel('kUnit', [['usd', 'Dollars ($)'], ['pct', 'Percent (%)'], ['ratio', 'Ratio (x)'], ['count', 'Number']], k.unit)}</div>
         <div class="form-row"><label>Target (leave empty to just track)</label><input id="kTarget" type="number" step="any" value="${k.target_value ?? ''}"></div>
@@ -187,11 +204,13 @@ function openKpiModal(id) {
         <div class="form-row"><label>Quarter-to-date is</label>${sel('kAgg', [['none', 'Typed from the source tool'], ['sum', 'Sum of the weeks'], ['latest', 'Latest value'], ['avg', 'Average']], k.aggregation)}</div>
         <div class="form-row"><label>Data source</label>${sel('kSrc', [['manual', 'Manual'], ['shopify', 'Shopify'], ['klaviyo', 'Klaviyo'], ['meta', 'Meta Ads'], ['google', 'Google Ads'], ['ga4', 'GA4']], k.source || 'manual')}</div></div>
       <div class="form-row"><label>Note (optional)</label><input id="kNote" value="${esc(k.note || '')}"></div>
+      <div class="form-row"><label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0"><input type="checkbox" id="kFounders" ${k.visibility === 'founders' ? 'checked' : ''}> Founders only: visible to administrators, hidden from the rest of the team</label></div>
     </div>
     <div class="modal-footer">${id ? '<button class="btn btn-danger" id="kDel" style="margin-right:auto">Delete</button>' : ''}<button class="btn" data-close>Cancel</button><button class="btn btn-accent" id="kSave">Save</button></div>`);
+  wireOwner(q, 'kOwner');
   q('#kDel')?.addEventListener('click', async () => { if (confirm('Delete this KPI and all its weekly numbers? This cannot be undone.')) { try { await deleteKpi(id); close(); await ctx.refresh(); } catch (e) { alert('Could not delete: ' + (e.message || e)); } } });
   q('#kSave').addEventListener('click', async () => {
-    const row = { quarter: k.quarter, name: q('#kName').value, owner_name: q('#kOwner').value, group_name: q('#kGroup').value, unit: q('#kUnit').value, target_value: q('#kTarget').value, target_scope: q('#kScope').value, direction: q('#kDir').value, aggregation: q('#kAgg').value, source: q('#kSrc').value, note: q('#kNote').value, sort_order: id ? undefined : (Math.max(0, ...m.kpis.map(x => x.sort_order || 0)) + 10) };
+    const row = { quarter: k.quarter, name: q('#kName').value, ...readOwner(q, 'kOwner'), visibility: q('#kFounders').checked ? 'founders' : 'team', group_name: q('#kGroup').value, unit: q('#kUnit').value, target_value: q('#kTarget').value, target_scope: q('#kScope').value, direction: q('#kDir').value, aggregation: q('#kAgg').value, source: q('#kSrc').value, note: q('#kNote').value, sort_order: id ? undefined : (Math.max(0, ...m.kpis.map(x => x.sort_order || 0)) + 10) };
     if (!row.name.trim() || !row.owner_name.trim()) return alert('Add a name and an owner.');
     try { await saveKpi(row, id); close(); await ctx.refresh(); } catch (e) { alert('Could not save: ' + (e.message || e)); }
   });
@@ -199,10 +218,10 @@ function openKpiModal(id) {
 
 function openRockModal(id) {
   const m = model(); const r = id ? m.rocks.find(x => x.id === id) : { quarter: st.quarter, owner_name: '', position: 1, title: '', tactics: '', status: 'not_started' };
-  const owners = [...new Set(m.rocks.map(x => x.owner_name))]; const linked = new Set(m.rockKpis.filter(l => l.rock_id === id).map(l => l.kpi_id));
+  const linked = new Set(m.rockKpis.filter(l => l.rock_id === id).map(l => l.kpi_id));
   const { close, q, box } = openBox(`<div class="modal-header"><h3>${id ? 'Edit rock' : 'Add rock'} · ${esc(r.quarter.replace('-', ' '))}</h3><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
     <div class="modal-body">
-      <div class="form-grid"><div class="form-row"><label>Owner</label><input id="rOwner" list="rOwners" value="${esc(r.owner_name)}"><datalist id="rOwners">${owners.map(o => `<option value="${esc(o)}">`).join('')}</datalist></div>
+      <div class="form-grid"><div class="form-row"><label>Owner</label>${ownerPicker('rOwner', r.owner_name, r.owner_email)}</div>
         <div class="form-row"><label>Rock number</label><select id="rPos">${[1, 2, 3, 4].map(n => `<option${n === r.position ? ' selected' : ''}>${n}</option>`).join('')}</select></div>
         <div class="form-row"><label>Status</label><select id="rStatus">${Object.entries(ROCK_STATUS).map(([k, l]) => `<option value="${k}"${k === r.status ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
       <div class="form-row"><label>Title</label><input id="rTitle" value="${esc(r.title)}"></div>
@@ -210,11 +229,28 @@ function openRockModal(id) {
       <div class="form-row"><label>KPIs this rock should move</label><div class="rk-pick">${m.qk.map(k => `<label><input type="checkbox" value="${k.id}"${linked.has(k.id) ? ' checked' : ''}> ${esc(k.name)} <small>${esc(k.owner_name)}</small></label>`).join('')}</div></div>
     </div>
     <div class="modal-footer">${id ? '<button class="btn btn-danger" id="rDel" style="margin-right:auto">Delete</button>' : ''}<button class="btn" data-close>Cancel</button><button class="btn btn-accent" id="rSave">Save</button></div>`);
+  wireOwner(q, 'rOwner');
   q('#rDel')?.addEventListener('click', async () => { if (confirm('Delete this rock?')) { try { await deleteRock(id); close(); await ctx.refresh(); } catch (e) { alert('Could not delete: ' + (e.message || e)); } } });
   q('#rSave').addEventListener('click', async () => {
-    const row = { quarter: r.quarter, owner_name: q('#rOwner').value, position: +q('#rPos').value, title: q('#rTitle').value, tactics: q('#rTactics').value, status: q('#rStatus').value };
+    const row = { quarter: r.quarter, ...readOwner(q, 'rOwner'), position: +q('#rPos').value, title: q('#rTitle').value, tactics: q('#rTactics').value, status: q('#rStatus').value };
     if (!row.title.trim() || !row.owner_name.trim()) return alert('Add an owner and a title.');
     const ids = [...box.querySelectorAll('.rk-pick input:checked')].map(i => i.value);
     try { await saveRock(row, ids, id); close(); await ctx.refresh(); } catch (e) { alert('Could not save: ' + (e.message || e)); }
+  });
+}
+
+// Links the names typed in Notion (Aira Viray, …) to the people who actually log in, so each person sees "My KPIs".
+function openMapOwners() {
+  const m = model(); const users = (ctx.users?.() || []).filter(u => u.status !== 'disabled');
+  const names = [...new Set([...m.kpis.map(k => k.owner_name), ...m.rocks.map(r => r.owner_name)])].filter(Boolean).sort();
+  const current = n => m.kpis.find(k => k.owner_name === n && k.owner_email)?.owner_email || m.rocks.find(r => r.owner_name === n && r.owner_email)?.owner_email || '';
+  const guess = n => users.find(u => u.full_name && u.full_name.toLowerCase().split(/\s+/)[0] === n.toLowerCase().split(/\s+/)[0])?.email || '';
+  const { close, q, box } = openBox(`<div class="modal-header"><h3>Map owners to system users</h3><button class="btn btn-sm btn-ghost" data-close>✕</button></div>
+    <div class="modal-body"><p class="sc-modal-sub">Choose who each owner name is in the system. Their KPIs and Rocks then appear under “My KPIs” when they log in. Invite people in User Management first.</p>
+      ${names.map((n, i) => `<div class="form-row"><label>${esc(n)}</label><select data-map="${esc(n)}"><option value="">— not linked —</option>${users.map(u => `<option value="${esc(u.email)}"${(current(n) || guess(n)) === u.email ? ' selected' : ''}>${esc(userLabel(u))}</option>`).join('')}</select></div>`).join('')}</div>
+    <div class="modal-footer"><button class="btn" data-close>Cancel</button><button class="btn btn-accent" id="mapSave">Save</button></div>`);
+  q('#mapSave').addEventListener('click', async () => {
+    try { await mapOwners([...box.querySelectorAll('[data-map]')].map(s => ({ name: s.dataset.map, email: s.value || null, full_name: users.find(u => u.email === s.value)?.full_name || null }))); close(); await ctx.refresh(); }
+    catch (e) { alert('Could not save: ' + (e.message || e)); }
   });
 }

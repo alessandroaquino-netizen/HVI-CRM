@@ -18,6 +18,7 @@ const LAST_SEEN_KEY = 'hvi-dropflow-seen';
 
 let ctx = null;             // { get: () => state, refresh: async () => void, canEditSettings: () => bool, email: () => string }
 let tab = 'board';
+let horizon = 21;            // days ahead the My tasks list reaches (T-minus view: tasks for products months away stay out of the way)
 let viewAs = null;          // role key or 'all'
 let openDropId = null;
 let weekSel = null;
@@ -158,12 +159,14 @@ function tasksHtml(st) {
   const open = rows.filter(t => !isDone(t)).sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'));
   const overdue = open.filter(t => t.due_date && t.due_date < today);
   const week = open.filter(t => t.due_date && t.due_date >= today && t.due_date <= addDays(today, 7));
-  const later = open.filter(t => !t.due_date || t.due_date > addDays(today, 7));
+  const laterAll = open.filter(t => !t.due_date || t.due_date > addDays(today, 7));
+  const later = horizon === 0 ? laterAll : laterAll.filter(t => t.due_date && t.due_date <= addDays(today, horizon));
+  const hidden = laterAll.length - later.length;
   const ready = open.filter(t => taskInfo(t, tasksByKey(tasksOf(st, t.drop_id))).ready).length;
   const feed = recentEvents(st, null);
   const sec = (title, list, color) => list.length ? `<div class="panel"><div class="panel-title" ${color ? `style="color:${color}"` : ''}>${title}<small>${list.length}</small></div>${list.map(t => taskRow(st, t)).join('')}</div>` : '';
   return `
-    ${personFilter(st, `<span class="mo-meta">${open.length} open · ${ready} ready to start now</span>`)}
+    ${personFilter(st, `<label>Show tasks due within <select id="moHorizon">${[[7, '1 week'], [14, '2 weeks'], [21, '3 weeks'], [42, '6 weeks'], [0, 'everything']].map(([v, l]) => `<option value="${v}"${v === horizon ? ' selected' : ''}>${l}</option>`).join('')}</select></label><span class="mo-meta">${open.length} open · ${ready} ready to start now${hidden ? ` · ${hidden} further out hidden` : ''}</span>`)}
     ${feed.length ? `<div class="panel mo-feed"><div class="panel-title">Changes since you last looked<small>${feed.length}</small><button class="btn btn-sm btn-ghost" id="moSeen" style="margin-left:auto">Mark as seen</button></div>${feed.slice(0, 6).map(eventRow).join('')}</div>` : ''}
     ${sec('Overdue', overdue, 'var(--red)')}${sec('Due in the next 7 days', week)}${sec('Later', later)}
     ${open.length ? '' : '<div style="color:var(--text3)">Nothing open for this person. 🎉</div>'}`;
@@ -247,6 +250,7 @@ function wireBody(el, st) {
     const t = st.tasks.find(x => x.id === cb.dataset.taskCheck);
     run(() => setTaskStatus(t, cb.checked ? 'complete' : 'not_started'));
   }));
+  el.querySelector('#moHorizon')?.addEventListener('change', e => { horizon = parseInt(e.target.value, 10); renderMarketingOps(); });
   el.querySelector('#moViewAs')?.addEventListener('change', e => { viewAs = e.target.value; renderMarketingOps(); });
   el.querySelector('#moWeek')?.addEventListener('change', e => { weekSel = e.target.value; renderMarketingOps(); });
   el.querySelector('#moSeen')?.addEventListener('click', () => { try { localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString()); } catch {} renderMarketingOps(); });

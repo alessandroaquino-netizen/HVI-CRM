@@ -29,7 +29,7 @@ export async function saveKpi(k, id = null) {
   const row = {
     quarter: k.quarter, name: k.name.trim(), owner_name: k.owner_name.trim(), group_name: (k.group_name || '').trim() || null,
     unit: k.unit, target_value: numOrNull(k.target_value), target_scope: k.target_scope, direction: k.direction, aggregation: k.aggregation,
-    source: k.source || 'manual', note: (k.note || '').trim() || null, active: k.active !== false,
+    source: k.source || 'manual', owner_email: k.owner_email ?? null, visibility: k.visibility === 'founders' ? 'founders' : 'team', note: (k.note || '').trim() || null, active: k.active !== false,
   };
   if (id) { must(await supabase.from('kpis').update(row).eq('id', id)); return id; }
   const data = must(await supabase.from('kpis').insert({ ...row, sort_order: (k.sort_order ?? 9999) }).select('id').single());
@@ -38,7 +38,7 @@ export async function saveKpi(k, id = null) {
 export async function deleteKpi(id) { must(await supabase.from('kpis').delete().eq('id', id)); }
 
 export async function saveRock(r, kpiIds, id = null) {
-  const row = { quarter: r.quarter, owner_name: r.owner_name.trim(), position: r.position || 1, title: r.title.trim(), tactics: (r.tactics || '').trim() || null, status: r.status, updated_by: getMyEmailAddr(), updated_at: new Date().toISOString() };
+  const row = { quarter: r.quarter, owner_name: r.owner_name.trim(), owner_email: r.owner_email ?? null, position: r.position || 1, title: r.title.trim(), tactics: (r.tactics || '').trim() || null, status: r.status, updated_by: getMyEmailAddr(), updated_at: new Date().toISOString() };
   let rockId = id;
   if (id) must(await supabase.from('rocks').update(row).eq('id', id));
   else rockId = must(await supabase.from('rocks').insert(row).select('id').single()).id;
@@ -69,4 +69,12 @@ export async function startNextQuarter(quarter, kpis, rocks, rockKpis) {
     if (links.length) must(await supabase.from('rock_kpis').insert(links));
   }
   return target;
+}
+
+/** Links owner names to users: every KPI and Rock with that name (all quarters) gets the person's email. */
+export async function mapOwners(list) {
+  for (const { name, email } of list) {
+    must(await supabase.from('kpis').update({ owner_email: email }).eq('owner_name', name));
+    must(await supabase.from('rocks').update({ owner_email: email }).eq('owner_name', name));
+  }
 }

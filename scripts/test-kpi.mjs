@@ -26,11 +26,20 @@ assert.ok(Math.abs(weeklyTarget(org) - 615.38) < 0.01);
 assert.ok(Math.abs(qtdTarget(org, 6) - 3692.3) < 0.1); assert.equal(qtdTarget(rev, 6), 120000);
 assert.equal(qtdTarget(ads, 6), 25);
 
-// evaluateKpi: latest week with data, stored QTD wins, otherwise running sum
+// evaluateKpi: the overall status is quarter-to-date; a stored QTD is ignored for summed KPIs (the weeks are added up instead)
 const vals = [{ period_start: '2026-10-05', value: 11971.55 }, { period_start: '2026-10-12', value: 17673.4 }, { period_start: '2026-10-19', value: 30359.97, qtd_value: 55454.81 }];
 const e = evaluateKpi(rev, vals, w);
-assert.equal(e.lastWeek, '2026-10-19'); assert.equal(e.status, 'on_track'); assert.equal(e.qtd, 55454.81); assert.equal(e.qtdStatus, 'at_risk'); // 55.4k / 60k = 92%
-const e2 = evaluateKpi(rev, vals.slice(0, 2), w); assert.ok(Math.abs(e2.qtd - 29644.95) < 0.01); assert.equal(e2.qtdStatus, 'off_track'); // 29.6k / 40k = 74%
+assert.equal(e.lastWeek, '2026-10-19'); assert.equal(e.lastStatus, 'on_track'); assert.ok(Math.abs(e.qtd - 60004.92) < 0.01); assert.equal(e.status, 'on_track'); assert.equal(e.basis, 'qtd');
+// a low latest week does not turn a good quarter red (the case discussed on Nov 11)
+const goodQuarter = [{ period_start: '2026-10-05', value: 25000 }, { period_start: '2026-10-12', value: 26000 }, { period_start: '2026-10-19', value: 24000 }, { period_start: '2026-10-26', value: 12000 }];
+const g = evaluateKpi(rev, goodQuarter, w); assert.equal(g.lastStatus, 'off_track'); assert.equal(g.status, 'on_track'); assert.equal(g.qtd, 87000);   // 87k vs 80k pace
+const e2 = evaluateKpi(rev, vals.slice(0, 2), w); assert.ok(Math.abs(e2.qtd - 29644.95) < 0.01); assert.equal(e2.status, 'off_track'); // 29.6k / 40k = 74%
+// "latest" KPIs (levels) use the latest value; typed-QTD KPIs use the figure typed from the source tool
+const ltv = { unit: 'usd', target_value: 62, target_scope: 'week', direction: 'higher', aggregation: 'latest' };
+const lv = evaluateKpi(ltv, [{ period_start: '2026-10-05', value: 56.9 }, { period_start: '2026-10-12', value: 61.27 }], w); assert.equal(lv.qtd, 61.27); assert.equal(lv.basis, 'latest'); assert.equal(lv.status, 'at_risk');
+const typed = { ...ads, aggregation: 'none' };
+const ty = evaluateKpi(typed, [{ period_start: '2026-10-05', value: 19.9, qtd_value: 19.9 }, { period_start: '2026-10-12', value: 40.9, qtd_value: 30.7 }], w); assert.equal(ty.qtd, 30.7); assert.equal(ty.lastStatus, 'off_track'); assert.equal(ty.status, 'off_track');
+const avg = { ...ads, aggregation: 'avg' }; assert.equal(evaluateKpi(avg, [{ period_start: '2026-10-05', value: 20 }, { period_start: '2026-10-12', value: 30 }], w).qtd, 25);
 const e3 = evaluateKpi({ ...ads, target_value: null }, [{ period_start: '2026-10-05', value: 5 }], w); assert.equal(e3.status, 'no_data');
 assert.equal(evaluateKpi(rev, [], w).status, 'no_data');
 assert.deepEqual(summarize([e, e2, e3]), { on_track: 1, at_risk: 0, off_track: 1, no_data: 1 });
