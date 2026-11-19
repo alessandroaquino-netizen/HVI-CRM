@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { parseInvoiceSheets } from './parse.js';
+import { readPdfSheet } from './pdfText.js';
 
 const SHEET_EXT = /\.(xls|xlsx|xlsm|csv|tsv)$/i;
 export const ACCEPTED_TYPES = '.xls,.xlsx,.xlsm,.csv,.tsv,.pdf,.png,.jpg,.jpeg';
@@ -25,8 +26,23 @@ export async function readInvoiceFile(file, { aiExtract } = {}) {
     }
     return { parsed, hash, method: 'rules' };
   }
+  // PDF with a text layer: read by rules in the browser, no AI needed. Photos and scanned PDFs fall through to AI.
+  if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
+    let sheet = null;
+    try { sheet = await readPdfSheet(file); } catch { /* unreadable PDF: handled below */ }
+    if (sheet) {
+      const parsed = parseInvoiceSheets([sheet], { fileName: file.name });
+      if (parsed.ok && parsed.lines.some(l => l.lineType === 'product')) {
+        parsed.warnings.unshift({ level: 'warn', msg: 'Read from a PDF: check every quantity, price and total against the original before saving.' });
+        return { parsed, hash, method: 'pdf' };
+      }
+    }
+    if (aiExtract) return { parsed: await aiExtract(file), hash, method: 'ai' };
+    throw new Error(sheet ? 'This PDF was read but no product lines were found (unusual layout). Send it to Alessandro so the reader can be tuned, or enter the invoice manually.'
+      : 'This PDF has no readable text (a scan or a photo). Upload the supplier\'s spreadsheet, or ask Alessandro to turn on AI reading (docs/invoice-ai-extraction.md).');
+  }
   if (aiExtract) return { parsed: await aiExtract(file), hash, method: 'ai' };
-  throw new Error('PDF and image invoices need AI extraction, which is not enabled yet. Upload the supplier\'s spreadsheet (.xls/.xlsx/.csv) or see docs/invoice-ai-extraction.md.');
+  throw new Error('Photos of invoices need AI reading, which is not enabled yet. Upload the supplier\'s PDF or spreadsheet, or see docs/invoice-ai-extraction.md.');
 }
 
 // Optional AI path: a Supabase Edge Function (supabase/functions/extract-invoice) that returns the same shape as parseInvoiceSheets().

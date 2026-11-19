@@ -8,7 +8,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const money = n => (n == null || n === '' ? '—' : '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const LINE_TYPES = ['product', 'photography', 'shipping', 'sample_fee', 'fee', 'other'];
 const TYPE_LABEL = { product: 'Product', photography: 'Photography', shipping: 'Shipping / duty', sample_fee: 'Sample fee', fee: 'Other fee', other: 'Other' };
-const METHOD_LABEL = { rules: 'Rules', ai: 'AI', manual: 'Manual', history: 'History load' };
+const METHOD_LABEL = { rules: 'Rules', ai: 'AI', manual: 'Manual', history: 'History load', pdf: 'PDF text' };
 const LEVEL_STYLE = { error: 'var(--red)', warn: 'var(--accent)', info: 'var(--text3)' };
 const CONF_STYLE = { certain: 'var(--green)', chosen: 'var(--green)', suggested: 'var(--accent)', conflict: 'var(--red)', none: 'var(--red)' };
 
