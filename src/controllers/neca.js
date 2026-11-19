@@ -12,6 +12,7 @@ export function rowToNecaLead(r) {
     state: r.state || '',
     zip: r.zip || '',
     website: r.website || '',
+    company_email: r.company_email || '',
     chapter: r.chapter || '',
     division: r.division || '',
     qualification_status: r.qualification_status || 'unqualified',
@@ -84,6 +85,7 @@ export async function updateNecaLead(id, p) {
     instagram: p.instagram || null,
     employee_estimate: p.employee_estimate || null,
     website: p.website || null,
+    company_email: (p.company_email || '').trim() || null,
     contacts: p.contacts || [],
     outreach_status: p.outreach_status || 'not_contacted',
     last_contacted_at: p.last_contacted_at || null,
@@ -140,7 +142,7 @@ export function emptyBreakdown() {
 export async function createPotentialLead(p) {
   const contacts = p.contactName || p.contactEmail ? [{ role: 'buyer', name: p.contactName || '', title: p.contactTitle || '', email: p.contactEmail || '', phone: p.contactPhone || '' }] : [];
   const { data, error } = await supabase.from('neca_leads').insert({
-    company: p.company, source: p.source || 'Other', website: p.website || null, city: p.city || null, state: p.state || null,
+    company: p.company, source: p.source || 'Other', website: p.website || null, company_email: p.companyEmail || null, city: p.city || null, state: p.state || null,
     contacts, notes: p.notes || null, qualification_status: 'unqualified', score_breakdown: emptyBreakdown(), outreach_status: 'not_contacted',
   }).select('id').single();
   if (error) throw error;

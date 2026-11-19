@@ -208,7 +208,10 @@ export function renderNecaLeadDetail(l, { linkedLead, suggestedLead, onSave, onD
       <div class="detail-grid">
         <div class="detail-field"><div class="lbl">Address</div><div class="val">${esc([l.address, l.city, l.state, l.zip].filter(Boolean).join(', ')) || '—'}</div></div>
         <div class="detail-field"><div class="lbl">NECA chapter(s) · ${l.memberships_count} listing${l.memberships_count === 1 ? '' : 's'}</div><div class="val" style="font-size:12px">${esc(l.chapters || l.chapter || '—')}</div></div>
-        <div class="detail-field"><div class="lbl">Website</div><div class="val">${site ? `<a href="${esc(site)}" target="_blank" rel="noopener" style="color:var(--blue)">${esc(l.website)}</a>` : '—'}</div></div>
+        <div class="detail-field"><div class="lbl">Website ${site ? `<a href="${esc(site)}" target="_blank" rel="noopener" style="color:var(--blue);text-transform:none;letter-spacing:0">open ↗</a>` : ''}</div>
+          <input id="nl_web" value="${esc(l.website)}" placeholder="https://www.example.com" style="width:100%">
+          <div class="lbl" style="margin-top:8px">Company email <span style="text-transform:none;letter-spacing:0;color:var(--text3)">(generic, e.g. info@)</span></div>
+          <input id="nl_cemail" type="email" value="${esc(l.company_email)}" placeholder="info@company.com" style="width:100%"></div>
         ${l.locations && l.memberships_count > 1 ? `<div class="detail-field" style="grid-column:span 3"><div class="lbl">Locations in the directory</div><div class="val" style="font-size:12px">${esc(l.locations)}</div></div>` : ''}
       </div>
 
@@ -239,7 +242,6 @@ export function renderNecaLeadDetail(l, { linkedLead, suggestedLead, onSave, onD
       <div class="form-row"><label>Buying signals / why now</label><textarea id="nl_signals" placeholder="Conferences, recruiting, anniversaries, branded apparel…">${esc(l.buying_signals)}</textarea></div>
       <div class="form-grid">
         <div class="form-row"><label>Suggested opening angle</label><input id="nl_angle" value="${esc(l.suggested_angle)}"></div>
-        <div class="form-row"><label>Website</label><input id="nl_web" value="${esc(l.website)}"></div>
       </div>
       <div class="form-row"><label>Research sources</label><textarea id="nl_sources" style="min-height:44px" placeholder="URLs or notes on where the information came from">${esc(l.research_sources)}</textarea></div>
 
@@ -310,7 +312,7 @@ export function renderNecaLeadDetail(l, { linkedLead, suggestedLead, onSave, onD
     onSave(l.id, {
       source: v('nl_source'), qualification_status: v('nl_status'), score_breakdown: readBreakdown(), score: l.score, tier: l.tier,
       employee_band: v('nl_band'), employee_estimate: v('nl_emp'), score_rationale: v('nl_why'), buying_signals: v('nl_signals'),
-      suggested_angle: v('nl_angle'), instagram: v('nl_ig'), website: v('nl_web'), research_sources: v('nl_sources'),
+      suggested_angle: v('nl_angle'), instagram: v('nl_ig'), website: v('nl_web'), company_email: v('nl_cemail'), research_sources: v('nl_sources'),
       top_executive_name: v('nl_exec_name'), top_executive_title: v('nl_exec_title'),
       contacts, outreach_status: v('nl_outreach'), last_contacted_at: v('nl_last'), notes: v('nl_notes'),
     });
@@ -329,6 +331,7 @@ export function renderAddPotentialLead({ onSave }) {
         <div class="form-row"><label>Company *</label><input id="ap_company"></div>
         <div class="form-row"><label>Source *</label><select id="ap_source">${LEAD_SOURCES.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select></div>
         <div class="form-row"><label>Website</label><input id="ap_web" placeholder="www.example.com"></div>
+        <div class="form-row"><label>Company email (generic)</label><input id="ap_cmail" type="email" placeholder="info@example.com"></div>
         <div class="form-row"><label>City</label><input id="ap_city"></div>
         <div class="form-row"><label>State</label><input id="ap_state" placeholder="CA"></div>
         <div class="form-row"><label>Contact name</label><input id="ap_cname"></div>
@@ -347,7 +350,7 @@ export function renderAddPotentialLead({ onSave }) {
   box.querySelector('#apCancel').addEventListener('click', close);
   box.querySelector('#apSave').addEventListener('click', async () => {
     if (!v('ap_company')) { box.querySelector('#apErr').textContent = 'Company is required.'; return; }
-    await onSave({ company: v('ap_company'), source: v('ap_source'), website: v('ap_web'), city: v('ap_city'), state: v('ap_state'),
+    await onSave({ company: v('ap_company'), source: v('ap_source'), website: v('ap_web'), companyEmail: v('ap_cmail'), city: v('ap_city'), state: v('ap_state'),
       contactName: v('ap_cname'), contactTitle: v('ap_ctitle'), contactEmail: v('ap_cemail'), contactPhone: v('ap_cphone'), notes: v('ap_notes') },
       msg => { box.querySelector('#apErr').textContent = msg; });
   });

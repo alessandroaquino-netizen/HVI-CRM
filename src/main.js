@@ -44,6 +44,7 @@ import { initDropflow, renderMarketingOps, dropForProduct, openDropModal, openCr
 import { fetchDropflow, subscribeToDropflow, moveLaunchDate } from './controllers/dropflow.js';
 import { initInventory, renderDtcInventory } from './views/dtcInventory.js';
 import { initTeam, renderTeamScorecard } from './views/teamScorecard.js';
+import { applyTabIdentity, IS_TEST_ENV } from './appName.js';
 import { fetchKpiData } from './controllers/kpi.js';
 import { fetchInventory, upsertOrdered } from './controllers/inventory.js';
 import { fetchCalendarEvents, saveCalendarEvent, deleteCalendarEvent } from './controllers/calendarEvents.js';
@@ -624,10 +625,11 @@ async function handleAddNecaToPipeline(n) {
     n.suggested_angle && 'Suggested angle: ' + n.suggested_angle,
     n.top_executive_name && `Executive: ${n.top_executive_name}${n.top_executive_title ? ' (' + n.top_executive_title + ')' : ''}`,
     n.website && 'Website: ' + n.website,
+    n.company_email && 'Company email: ' + n.company_email,
   ].filter(Boolean).join('\n');
   try {
     const newId = await saveLead({
-      company: n.company, contact: c.name || '', title: c.title || '', phone: c.phone || '', email: c.email || '',
+      company: n.company, contact: c.name || '', title: c.title || '', phone: c.phone || '', email: c.email || n.company_email || '',
       segment: 'High voltage contractor', source: n.source || 'NECA', disc: '', stage: 'Prospect',
       est: '', units: '', proposalDate: '', followupDate: '', followupNote: '', notes, collected: '', cadenceTotal: '',
     }, null);
@@ -833,7 +835,7 @@ function showApp(user, access) {
   const nameSource = (access?.full_name || user.email.split('@')[0]).replace(/[._]/g, ' ');
   document.getElementById('userAvatar').textContent = nameSource.split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('') || '·';
   document.getElementById('userRole').textContent = access?.role === 'admin' ? 'Administrator' : 'Team member';
-  const isTestEnv = (import.meta.env.VITE_SUPABASE_URL || '').includes('ymzeklhdzpmaakvlxrkx');
+  const isTestEnv = IS_TEST_ENV;
   const banner = document.getElementById('testEnvBanner');
   if (banner) banner.classList.toggle('hidden', !isTestEnv);
   applyNavAccess();
@@ -903,6 +905,7 @@ function wireEvents() {
 
 // ---------- bootstrap ----------
 async function bootstrap() {
+  applyTabIdentity();
   initTheme();
   initDropflow({
     get: () => ({ ...dropflow, products: dtcProducts, inventory: dtcInventory, users: appUsers }),
